@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ALPHA TANK — MAZE BOMBERS</title>
+<meta name="description" content="Alpha Tank Maze Bombers — AAA-quality HTML5 tactical tank combat. Adaptive AI, destructible mazes, dynamic lighting, procedural audio. Zero dependencies.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="menu-open">
+<canvas id="game"></canvas>
+<div id="crt"></div>
+
+<div id="ui">
+
+  <!-- ============ MAIN MENU ============ -->
+  <div class="screen active" id="scr-main">
+    <div class="panel center">
+      <div class="eyebrow">// Tactical Combat Simulator</div>
+      <h1 class="title">Alpha Tank<span>Maze Bombers</span></h1>
+      <div class="subtitle">Adaptive AI &bull; Destructible arenas &bull; Zero mercy</div>
+      <div class="menu-buttons">
+        <button class="btn primary" data-act="play">&#9654;&nbsp; Deploy</button>
+        <button class="btn" data-act="how">Field Manual</button>
+        <button class="btn" data-act="settings">Systems Config</button>
+        <button class="btn" data-act="records">Service Record</button>
+      </div>
+      <div class="best" id="main-best">BEST SCORE — 0</div>
+      <div class="foot">v1.0 &bull; single-file build &bull; procedural audio &bull; no external assets</div>
+    </div>
+  </div>
+
+  <!-- ============ FIELD MANUAL ============ -->
+  <div class="screen" id="scr-how">
+    <div class="panel">
+      <h2 class="scr-h">Field Manual</h2>
+      <div class="scr-sub">Controls &amp; hostile intel</div>
+      <div class="intel">
+        <div class="intel-h">Controls — Keyboard &amp; Mouse</div>
+        <div class="k">W A S D / Arrows</div><div class="v">Drive</div>
+        <div class="k">Mouse</div><div class="v">Aim turret</div>
+        <div class="k">Left Mouse (hold)</div><div class="v">Cannon fire</div>
+        <div class="k">SPACE</div><div class="v">Plant demolition bomb</div>
+        <div class="k">SHIFT (hold)</div><div class="v">Overdrive boost</div>
+        <div class="k">P / ESC</div><div class="v">Pause</div>
+        <div class="intel-h">Controls — Gamepad / Touch</div>
+        <div class="k">Left stick / left thumb</div><div class="v">Drive</div>
+        <div class="k">Right stick / right thumb</div><div class="v">Aim + auto-fire</div>
+        <div class="k">A / RT &nbsp;&bull;&nbsp; X</div><div class="v">Fire &bull; Bomb</div>
+        <div class="intel-h">Hostile Intel</div>
+        <div class="k" style="color:#e07a6a">GRUNT</div><div class="v">Standard patrol unit. Slow aim.</div>
+        <div class="k" style="color:#ff9d5c">HUNTER</div><div class="v">Fast. Burst fire. Leads your movement.</div>
+        <div class="k" style="color:#7ef0ff">SNIPER</div><div class="v">Laser lock-on. Break line of sight.</div>
+        <div class="k" style="color:#ffd05c">BOMBER</div><div class="v">Breaches walls. Seeds minefields.</div>
+        <div class="k" style="color:#c98aff">HEAVY</div><div class="v">Armored twin cannon. Kite it.</div>
+        <div class="k" style="color:#ff4d5e">COMMAND UNIT</div><div class="v">Boss. Radial bursts &amp; ramming charge.</div>
+        <div class="intel-h">Doctrine</div>
+        <div class="tipline"><b>Brick walls break</b> — steel walls ricochet your shells (1 bounce). Use bounces around corners.
+        <b>Bombs</b> excavate brick and chain-detonate barrels and mines. Kills within 4s build a <b>combo multiplier</b> up to &times;6.
+        Destroyed hostiles drop <b>field supplies</b>: repair, shield, rapid, tri-shot, overdrive, bombs, EMP.
+        The AI Director watches you — play well and it sharpens the opposition.</div>
+      </div>
+      <div class="btn-row"><button class="btn" data-act="back-main">Return</button></div>
+    </div>
+  </div>
+
+  <!-- ============ SETTINGS ============ -->
+  <div class="screen" id="scr-set">
+    <div class="panel">
+      <h2 class="scr-h">Systems Config</h2>
+      <div class="scr-sub">Audio &bull; Render &bull; Combat</div>
+      <div class="set-grid">
+        <label for="set-sfx">SFX Volume</label>
+        <input type="range" id="set-sfx" min="0" max="1" step="0.05">
+        <label for="set-music">Music Volume</label>
+        <input type="range" id="set-music" min="0" max="1" step="0.05">
+        <label for="set-shake">Screen Shake</label>
+        <input type="range" id="set-shake" min="0" max="1.5" step="0.1">
+        <label for="set-quality">Render Quality</label>
+        <select id="set-quality">
+          <option value="auto">Auto (adaptive)</option>
+          <option value="high">High</option>
+          <option value="med">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <label for="set-diff">Difficulty</label>
+        <select id="set-diff">
+          <option value="adaptive">Adaptive (AI Director)</option>
+          <option value="easy">Recruit</option>
+          <option value="normal">Soldier</option>
+          <option value="hard">Veteran</option>
+        </select>
+        <label>CRT Scanlines</label>
+        <label class="tog"><input type="checkbox" id="set-crt"><span class="sw"></span></label>
+        <label>FPS Counter</label>
+        <label class="tog"><input type="checkbox" id="set-fps"><span class="sw"></span></label>
+      </div>
+      <div class="btn-row"><button class="btn primary" data-act="set-back">Save &amp; Return</button></div>
+    </div>
+  </div>
+
+  <!-- ============ RECORDS ============ -->
+  <div class="screen" id="scr-rec">
+    <div class="panel">
+      <h2 class="scr-h">Service Record</h2>
+      <div class="scr-sub">Top operations</div>
+      <ol id="rec-list"></ol>
+      <div class="hr"></div>
+      <div id="rec-stats"></div>
+      <div class="btn-row">
+        <button class="btn" data-act="back-main">Return</button>
+        <button class="btn warn small" data-act="wipe">Wipe Data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PAUSE ============ -->
+  <div class="screen" id="scr-pause">
+    <div class="panel center">
+      <div class="eyebrow">// Operation suspended</div>
+      <h2 class="scr-h">Paused</h2>
+      <div class="menu-buttons" style="margin-top:18px;">
+        <button class="btn primary" data-act="resume">Resume</button>
+        <button class="btn" data-act="settings">Systems Config</button>
+        <button class="btn" data-act="restart">Restart Operation</button>
+        <button class="btn warn" data-act="quit">Abort to Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ GAME OVER ============ -->
+  <div class="screen" id="scr-over">
+    <div class="panel center">
+      <div class="eyebrow" style="color:var(--danger)">// Unit destroyed</div>
+      <h2 class="scr-h">Operation Failed</h2>
+      <div class="record-flag" id="go-record">&#9733; New Service Record &#9733;</div>
+      <div class="big-score" id="go-score">0</div>
+      <div class="stat-grid" id="go-stats"></div>
+      <div class="btn-row">
+        <button class="btn primary" data-act="retry">Redeploy</button>
+        <button class="btn" data-act="quit">Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LEVEL COMPLETE ============ -->
+  <div class="screen" id="scr-level">
+    <div class="panel center">
+      <div class="eyebrow" style="color:var(--ok)">// Sector secured</div>
+      <h2 class="scr-h" id="lc-title">Sector 1 Cleared</h2>
+      <div class="stat-grid" id="lc-stats"></div>
+      <div class="btn-row">
+        <button class="btn primary" data-act="next">Advance &nbsp;&#9654;</button>
+        <button class="btn" data-act="quit">Menu</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ================================================================
+     ENGINE SCRIPTS — load order matters (shared top-level globals):
+       1. config.js   — CFG / quality / math utils / seeded RNG / SAVE
+       2. audio.js    — procedural Web Audio SFX + adaptive music
+       3. input.js    — keyboard / mouse / gamepad / touch
+       4. camera.js   — follow, look-ahead, trauma shake, zoom
+       5. effects.js  — particles, lighting, decals, noises, screen FX
+       6. worldgen.js — themes, tilemap, maze generator, A* pathfinding
+       7. combat.js   — shells, bombs, mines, barrels, pickups, explosions
+       8. tanks.js    — physics chassis, Player, Enemy tactical FSM AI
+       9. game.js     — AI Director, WORLD simulation, minimap, game state
+      10. main.js     — HUD, render pipeline, UI wiring, main loop, boot
+     ================================================================ -->
+<script src="js/config.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/input.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/effects.js"></script>
+<script src="js/worldgen.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/tanks.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
