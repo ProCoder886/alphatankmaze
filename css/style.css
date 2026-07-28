@@ -26,9 +26,26 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--deck);}
 body{
   font-family:var(--font-cmd);
   color:var(--ink);
+  /* Required by CrazyGames mobile requirements: prevents the
+     magnification tool / contextual selection on tap-and-hold. */
   user-select:none;
   -webkit-user-select:none;
+  -moz-user-select:none;
+  -ms-user-select:none;
+  -webkit-touch-callout:none;
   touch-action:none;
+  overscroll-behavior:none;
+}
+/* Probe used to read the device safe-area insets (notches, rounded
+   corners, dynamic island) so the canvas HUD can avoid them inside
+   the CrazyGames App. Read from JS, never visible. */
+#safe-probe{
+  position:fixed;top:0;left:0;width:0;height:0;
+  visibility:hidden;pointer-events:none;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-right:env(safe-area-inset-right,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
 }
 canvas#game{
   position:fixed;inset:0;width:100%;height:100%;display:block;
@@ -51,7 +68,14 @@ body.menu-open canvas#game{cursor:default;}
 body.crt-on #crt{display:block;}
 
 /* ---- UI root & screens ---- */
-#ui{position:fixed;inset:0;z-index:50;pointer-events:none;}
+#ui{
+  position:fixed;inset:0;z-index:50;pointer-events:none;
+  /* keep menus clear of notches / rounded corners in the CG App */
+  padding-top:env(safe-area-inset-top,0px);
+  padding-right:env(safe-area-inset-right,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
+}
 .screen{
   position:absolute;inset:0;display:none;align-items:center;justify-content:center;
   pointer-events:auto;
@@ -213,6 +237,10 @@ ol#rec-list li .lv{color:var(--ink-dim);}
 .stat-grid .sk{color:var(--ink-dim);text-align:right;letter-spacing:.04em;}
 .stat-grid .sv{color:var(--ink);text-align:left;font-weight:600;}
 .best{margin-top:4px;font-family:var(--font-num);font-size:13px;color:var(--ink-dim);letter-spacing:.1em;}
+.operator{
+  margin-top:5px;font-family:var(--font-num);font-size:11.5px;
+  letter-spacing:.16em;color:var(--friend);text-transform:uppercase;
+}
 .best b{color:var(--hostile-hot);}
 .foot{margin-top:22px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:rgba(143,163,173,0.55);}
 .center{text-align:center;}

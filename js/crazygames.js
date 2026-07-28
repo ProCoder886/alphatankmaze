@@ -23,11 +23,13 @@ const CG = {
   env: "disabled",       // "local" | "crazygames" | "disabled"
   available: false,      // SDK usable (local or crazygames)
   adblock: false,        // adblocker detected
+  adsDisabled: false,    // platform reported ads off (Basic Launch)
   adPending: false,      // ad requested, awaiting adStarted/adError
   adPlaying: false,      // ad actually on screen (audio muted, game paused)
   sdkMute: false,        // platform muteAudio setting
   user: null,            // logged-in CrazyGames user (or null)
-  device: "desktop",
+  device: "desktop",     // "desktop" | "tablet" | "mobile"
+  appType: "web",        // "web" | "pwa" | "google_play_store" | "apple_store"
 
   _gameplayOn: false,
   _lastRewardT: -1e9,    // performance.now()/1000 of last rewarded ad shown
@@ -80,6 +82,7 @@ const CG = {
       }
       const info = sdk.user.systemInfo;
       if (info && info.device && info.device.type) this.device = info.device.type;
+      if (info && info.applicationType) this.appType = info.applicationType;
     } catch (e) { /* not logged in / unavailable — ignore */ }
 
     // adblock detection: never block play, only gate the ad-reward path
@@ -166,7 +169,9 @@ const CG = {
      the ad actually starts, and an unfilled/blocked ad must never
      leave the game stuck or reward the player.
      ================================================================ */
-  adsAvailable(){ return this.available && !this.adblock; },
+  adsAvailable(){ return this.available && !this.adblock && !this.adsDisabled; },
+  /* True when the game runs inside the CrazyGames mobile app. */
+  isApp(){ return this.appType === "google_play_store" || this.appType === "apple_store"; },
 
   /* Resolves { ok:true } only when the ad played to completion. */
   requestAd(type){
@@ -187,6 +192,7 @@ const CG = {
       };
 
       this.adPending = true;
+      INPUT.setPointerLock(false);   // hand the cursor back for the ad
       this.showAdOverlay("Loading advertisement");
       // Safety net: the game must never freeze waiting on an ad callback.
       this._watchdog = setTimeout(() => finish({ ok: false, error: { code: "timeout" } }), 45000);
@@ -200,6 +206,10 @@ const CG = {
           },
           adFinished: () => finish({ ok: true }),
           adError: (error) => {
+            // Ads are switched off platform-side during Basic Launch. Stop
+            // offering them entirely so no ad button is ever clickable
+            // without effect, and no further requests are made.
+            if (error && error.code === "adsDisabledBasicLaunch") this.adsDisabled = true;
             console.warn("[CG] ad error (" + type + "):", error);
             finish({ ok: false, error: error || { code: "other" } });
           },
@@ -236,6 +246,7 @@ const CG = {
   /* Why a rewarded offer can't be taken right now (null = it can). */
   rewardBlockedReason(){
     if (!this.available) return "Rewards are available on CrazyGames.";
+    if (this.adsDisabled) return "Ad rewards are unavailable right now.";
     if (this.adblock) return "Ad blocker detected — disable it to claim ad rewards.";
     const cd = this.rewardCooldownLeft();
     if (cd > 0) return "Next ad reward available in " + cd + "s.";

@@ -79,3 +79,32 @@ appear during active gameplay, and are never chained.
   with a localStorage fallback and automatic migration of pre-SDK saves.
 * **user** — account availability, current user and system info (device type).
 * **ad** — `hasAdblock` detection that gates only the ad-reward path, never play.
+
+### Basic Launch behaviour
+
+Ads are disabled platform-side during Basic Launch. The first `adError` with
+code `adsDisabledBasicLaunch` permanently removes every ad button for the
+session and stops further ad requests, so no rewarded button is ever clickable
+without effect and nothing freezes between levels. The salvage path keeps all
+bonuses reachable.
+
+## Platform requirements compliance
+
+| Requirement | How it is met |
+|---|---|
+| Readable at `devicePixelRatio: 1` on all listed iframe sizes | HUD scales with the viewport (`UIS`), verified from 800×450 to 1920×1080 |
+| Consistent physics across refresh rates | Fixed 1/60 s timestep; hit-stop measured in seconds, not frames |
+| Mouse must not leave the game frame | Pointer Lock during gameplay with a custom crosshair; ESC releases it |
+| No page scroll / stray context menu | `wheel` and document-level `contextmenu` are prevented |
+| Backgrounded tab | `visibilitychange` and `blur` pause the game and drop held input |
+| iOS audio after interruption | `AudioContext` resumed from `touchend`/`click`, handling `interrupted` |
+| Mobile selection / magnifier | `user-select` (all prefixes), `-webkit-touch-callout`, `touch-action: none` |
+| CrazyGames App safe areas | `env(safe-area-inset-*)` applied to menus and to the canvas HUD |
+| Land in gameplay fast | Single click from menu to gameplay; `gameplayStart` fires at real play |
+| Chromebook / low-end devices | Adaptive quality tiers; mobile and tablet start one tier down |
+| No custom fullscreen button, no cross-promotion, no external ads | None present |
+| AZERTY keyboards | Movement reads physical key codes, so WASD maps to ZQSD |
+
+No sitelock is applied, since this repository is also intended to be playable
+from its own hosting. Add the `isCrazyGames()` domain check from the Sitelock
+guide if you want to restrict the build to CrazyGames domains.

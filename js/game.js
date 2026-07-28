@@ -225,10 +225,11 @@ const MINI = {
     if (!map) return;
     if (map.dirty || this.dirty) { this.rebuild(); map.dirty = false; }
     const mw = this.cv.width, mh = this.cv.height;
-    const maxW = Math.min(190, W * 0.28);
-    const k = Math.min(maxW / mw, 150 / mh);
+    const maxW = Math.min(190 * UIS, W * 0.28);
+    const maxH = Math.min(150 * UIS, H * 0.24);
+    const k = Math.min(maxW / mw, maxH / mh);
     const dw = mw * k, dh = mh * k;
-    const x = W - dw - 16, y = H - dh - 16;
+    const x = W - dw - 16 - SAFE.r, y = H - dh - 16 - SAFE.b;
     c.fillStyle = "rgba(8,12,18,0.62)";
     c.strokeStyle = "rgba(120,160,180,0.35)";
     c.lineWidth = 1;
@@ -293,6 +294,7 @@ const GAME = {
     showScreen(null);
     CG.clearAllBanners();
     CG.gameplayStart();
+    INPUT.setPointerLock(true);
     AUDIO.resume();
     AUDIO.startEngine();
     AUDIO.startMusic();
@@ -389,7 +391,7 @@ const GAME = {
     this.combo.t = CFG.COMBO_WINDOW;
     this.combo.best = Math.max(this.combo.best, this.combo.n);
     this.addScore(e.scoreVal, e.x, e.y - 10);
-    this.freeze = Math.max(this.freeze, e.type === "boss" ? 9 : 2);
+    this.freeze = Math.max(this.freeze, e.type === "boss" ? 0.15 : 0.034);  // seconds
     if (e.type === "boss") {
       this.slowmo(0.25, 1.1);
       CAM.tzoom = 1;
@@ -457,6 +459,7 @@ const GAME = {
     showScreen(null);
     CG.clearAllBanners();
     CG.gameplayStart();
+    INPUT.setPointerLock(true);
     AUDIO.startEngine();
     AUDIO.startMusic();
     this.showBanner("FIELD REPAIR COMPLETE", "Hull restored — shield online", 2.4);
@@ -557,6 +560,7 @@ const GAME = {
       statRow("Bricks razed", this.stats.bricks) +
       statRow("Time", padTime(this.stats.time));
     showScreen("scr-level");
+    INPUT.setPointerLock(false);
     renderOffer("offer-level", "bonus");
     AUDIO.setEngine(0);
   },
@@ -577,6 +581,7 @@ const GAME = {
     showScreen(null);
     CG.clearAllBanners();
     CG.gameplayStart();
+    INPUT.setPointerLock(true);
     AUDIO.startEngine();
   },
   gameOver(){
@@ -607,6 +612,7 @@ const GAME = {
       statRow("Survived", padTime(this.stats.time));
     if (isRecord) CG.happytime();          // platform celebration: new best
     showScreen("scr-over");
+    INPUT.setPointerLock(false);
     renderOffer("offer-over", "revive");   // "out of lives" rewarded offer
     CG.showBanner("banner-over");          // static screen, shown >5s
   },
@@ -614,6 +620,7 @@ const GAME = {
     if (this.state !== "playing") return;
     this.state = "paused";
     showScreen("scr-pause");
+    INPUT.setPointerLock(false);
     CG.gameplayStop();
     AUDIO.setEngine(0);
   },
@@ -622,10 +629,12 @@ const GAME = {
     this.state = "playing";
     showScreen(null);
     CG.gameplayStart();
+    INPUT.setPointerLock(true);
     AUDIO.startEngine();
   },
   quitToMenu(){
     this.state = "menu";
+    INPUT.setPointerLock(false);
     CG.gameplayStop();
     CG.clearContext();
     AUDIO.setEngine(0);

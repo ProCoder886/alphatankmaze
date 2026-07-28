@@ -17,113 +17,124 @@ function drawHUD(c, time){
   const pl = WORLD.player;
   if (!pl) return;
   c.textBaseline = "alphabetic";
-  const pad = 16;
-  /* --- left cluster: HP / shield / boost / bombs / buffs --- */
-  let y = pad;
-  const bw = Math.min(230, W * 0.32);
-  c.font = "700 11px Bahnschrift, 'Segoe UI', sans-serif";
+  const pad = Math.round(16 * UIS);
+  const padL = pad + SAFE.l, padR = pad + SAFE.r, padT = pad + SAFE.t;
+  /* --- left cluster: HP / shield / boost / bombs / buffs ---
+     Every offset scales with UIS so labels, bars and icons keep their
+     relative spacing at any viewport size. */
+  const LBL = Math.round(42 * UIS);          // label column width
+  const barH = Math.round(14 * UIS);
+  const rowHp = Math.round(20 * UIS), rowBoost = Math.round(16 * UIS);
+  let y = padT;
+  const bw = Math.min(230 * UIS, W * 0.32);
+  c.font = "700 " + FS(11) + "px Bahnschrift, 'Segoe UI', sans-serif";
   c.textAlign = "left";
   c.fillStyle = "rgba(223,233,238,0.75)";
-  c.fillText("HULL", pad, y + 10);
+  c.fillText("HULL", padL, y + barH * 0.72);
   // hp bar
   c.fillStyle = "rgba(8,12,18,0.6)";
-  chamferBar(c, pad + 42, y, bw, 14); c.fill();
+  chamferBar(c, padL + LBL, y, bw, barH); c.fill();
   const hpPct = clamp(pl.hp / pl.maxHp, 0, 1);
   const hpCol = hpPct > 0.5 ? "#46e0d8" : (hpPct > 0.25 ? "#ffd05c" : "#ff4d5e");
   c.save();
-  chamferBar(c, pad + 42, y, bw, 14); c.clip();
+  chamferBar(c, padL + LBL, y, bw, barH); c.clip();
   c.fillStyle = hpCol;
-  c.fillRect(pad + 42, y, bw * hpPct, 14);
+  c.fillRect(padL + LBL, y, bw * hpPct, barH);
   c.fillStyle = "rgba(255,255,255,0.18)";
-  c.fillRect(pad + 42, y, bw * hpPct, 5);
+  c.fillRect(padL + LBL, y, bw * hpPct, barH * 0.36);
   if (pl.shieldHp > 0) {
     c.fillStyle = "rgba(126,200,255,0.85)";
-    c.fillRect(pad + 42, y + 10, bw * clamp(pl.shieldHp / 45, 0, 1), 4);
+    c.fillRect(padL + LBL, y + barH * 0.71, bw * clamp(pl.shieldHp / 45, 0, 1), barH * 0.29);
   }
   c.restore();
   c.strokeStyle = "rgba(120,160,180,0.4)"; c.lineWidth = 1;
-  chamferBar(c, pad + 42, y, bw, 14); c.stroke();
+  chamferBar(c, padL + LBL, y, bw, barH); c.stroke();
   c.fillStyle = "#eaf6fa";
-  c.font = "700 10px Consolas, monospace";
-  c.fillText(Math.max(0, Math.ceil(pl.hp)) + "/" + pl.maxHp, pad + 48, y + 11);
+  c.font = "700 " + FS(10) + "px Consolas, monospace";
+  c.fillText(Math.max(0, Math.ceil(pl.hp)) + "/" + pl.maxHp, padL + LBL + 6 * UIS, y + barH * 0.78);
   // boost
-  y += 20;
+  y += rowHp;
+  const boostH = Math.round(7 * UIS);
   c.fillStyle = "rgba(223,233,238,0.55)";
-  c.font = "700 9px Bahnschrift, 'Segoe UI', sans-serif";
-  c.fillText("BOOST", pad, y + 7);
+  c.font = "700 " + FS(9) + "px Bahnschrift, 'Segoe UI', sans-serif";
+  c.fillText("BOOST", padL, y + boostH);
   c.fillStyle = "rgba(8,12,18,0.6)";
-  chamferBar(c, pad + 42, y, bw * 0.7, 7); c.fill();
+  chamferBar(c, padL + LBL, y, bw * 0.7, boostH); c.fill();
   c.fillStyle = pl.boosting ? "#8ffff6" : "rgba(70,224,216,0.7)";
-  c.fillRect(pad + 42, y + 1, (bw * 0.7 - 2) * pl.boost, 5);
+  c.fillRect(padL + LBL, y + 1, (bw * 0.7 - 2) * pl.boost, boostH - 2);
   // bombs
-  y += 16;
+  y += rowBoost;
+  const bombStep = Math.round(18 * UIS), bombSz = 9 * UIS;
   c.fillStyle = "rgba(223,233,238,0.55)";
-  c.fillText("BOMBS", pad, y + 9);
+  c.fillText("BOMBS", padL, y + bombSz);
   for (let i = 0; i < pl.maxBombs; i++) {
-    const bx = pad + 44 + i * 18, by = y + 5;
+    const bx = padL + LBL + 2 * UIS + i * bombStep, by = y + bombSz * 0.55;
     c.save();
     c.translate(bx, by);
     c.rotate(Math.PI / 4);
     c.fillStyle = i < pl.bombs ? "#ff7a45" : "rgba(120,140,150,0.22)";
-    c.fillRect(-4.5, -4.5, 9, 9);
+    c.fillRect(-bombSz / 2, -bombSz / 2, bombSz, bombSz);
     c.restore();
   }
   // active buffs
-  y += 20;
+  y += Math.round(20 * UIS);
   const buffs = [];
   if (pl.rapidT > 0) buffs.push(["RAPID", pl.rapidT / 8, "#ffd05c"]);
   if (pl.tripleT > 0) buffs.push(["TRI", pl.tripleT / 10, "#ff9a5c"]);
   if (pl.speedT > 0) buffs.push(["OVR", pl.speedT / 8, "#8ffff6"]);
   if (pl.shieldT > 0 && pl.shieldHp > 0) buffs.push(["SHD", pl.shieldT / 12, "#7ec8ff"]);
-  let bx = pad;
-  c.font = "700 10px Consolas, monospace";
+  let bx = padL;
+  const buffW = Math.round(52 * UIS), buffH = Math.round(16 * UIS);
+  c.font = "700 " + FS(10) + "px Consolas, monospace";
   for (const [label, pct, col] of buffs) {
     c.fillStyle = "rgba(8,12,18,0.6)";
-    chamferBar(c, bx, y, 52, 16); c.fill();
+    chamferBar(c, bx, y, buffW, buffH); c.fill();
     c.fillStyle = col;
-    c.fillRect(bx, y + 13, 52 * clamp(pct, 0, 1), 3);
-    c.fillText(label, bx + 8, y + 11);
-    bx += 60;
+    c.fillRect(bx, y + buffH - 3 * UIS, buffW * clamp(pct, 0, 1), 3 * UIS);
+    c.fillText(label, bx + 8 * UIS, y + buffH * 0.68);
+    bx += buffW + 8 * UIS;
   }
   /* --- right cluster: score / combo --- */
   c.textAlign = "right";
   c.fillStyle = "rgba(223,233,238,0.6)";
-  c.font = "700 10px Bahnschrift, 'Segoe UI', sans-serif";
-  c.fillText("SCORE", W - pad, pad + 8);
+  c.font = "700 " + FS(10) + "px Bahnschrift, 'Segoe UI', sans-serif";
+  c.fillText("SCORE", W - padR, padT + FS(9));
   c.fillStyle = "#eaf6fa";
-  c.font = "700 26px Consolas, monospace";
-  c.fillText(fmt(GAME.score), W - pad, pad + 34);
+  c.font = "700 " + FS(26) + "px Consolas, monospace";
+  c.fillText(fmt(GAME.score), W - padR, padT + FS(37));
   if (GAME.combo.n > 1) {
     const pct = GAME.combo.t / CFG.COMBO_WINDOW;
+    const cw = 110 * UIS;
     c.fillStyle = "#8ffff6";
-    c.font = "700 16px Consolas, monospace";
-    c.fillText("x" + GAME.combo.n + " COMBO", W - pad, pad + 56);
+    c.font = "700 " + FS(16) + "px Consolas, monospace";
+    c.fillText("x" + GAME.combo.n + " COMBO", W - padR, padT + FS(59));
     c.fillStyle = "rgba(8,12,18,0.6)";
-    c.fillRect(W - pad - 110, pad + 62, 110, 4);
+    c.fillRect(W - padR - cw, padT + FS(66), cw, 4 * UIS);
     c.fillStyle = "#8ffff6";
-    c.fillRect(W - pad - 110 * pct, pad + 62, 110 * pct, 4);
+    c.fillRect(W - padR - cw * pct, padT + FS(66), cw * pct, 4 * UIS);
   }
   /* --- top-center: sector / wave --- */
   c.textAlign = "center";
   c.fillStyle = "rgba(223,233,238,0.65)";
-  c.font = "700 11px Bahnschrift, 'Segoe UI', sans-serif";
+  c.font = "700 " + FS(11) + "px Bahnschrift, 'Segoe UI', sans-serif";
   let waveTxt = "SECTOR " + GAME.level + "  ·  WAVE " + Math.max(1, GAME.wave) + "/" + GAME.wavesTotal;
   if (GAME.modifier && GAME.waveState === "active") waveTxt += "  ·  " + GAME.modifier.label;
-  c.fillText(waveTxt, W / 2, pad + 8);
+  c.fillText(waveTxt, W / 2, padT + FS(9));
   /* --- boss bar --- */
   const boss = WORLD.enemies.find(e => e.type === "boss" && e.alive);
   if (boss) {
-    const bw2 = Math.min(420, W * 0.55);
-    const bx2 = W / 2 - bw2 / 2, by2 = pad + 18;
+    const bw2 = Math.min(420 * UIS, W * 0.55);
+    const bossH = Math.round(12 * UIS);
+    const bx2 = W / 2 - bw2 / 2, by2 = padT + FS(20);
     c.fillStyle = "rgba(8,12,18,0.7)";
-    chamferBar(c, bx2, by2, bw2, 12); c.fill();
+    chamferBar(c, bx2, by2, bw2, bossH); c.fill();
     c.fillStyle = "#ff4d5e";
-    c.fillRect(bx2 + 1, by2 + 1, (bw2 - 2) * clamp(boss.hp / boss.maxHp, 0, 1), 10);
+    c.fillRect(bx2 + 1, by2 + 1, (bw2 - 2) * clamp(boss.hp / boss.maxHp, 0, 1), bossH - 2);
     c.strokeStyle = "rgba(255,77,94,0.6)";
-    chamferBar(c, bx2, by2, bw2, 12); c.stroke();
+    chamferBar(c, bx2, by2, bw2, bossH); c.stroke();
     c.fillStyle = "#ffb0b8";
-    c.font = "700 9px Consolas, monospace";
-    c.fillText("COMMAND UNIT", W / 2, by2 + 9.5);
+    c.font = "700 " + FS(9) + "px Consolas, monospace";
+    c.fillText("COMMAND UNIT", W / 2, by2 + bossH * 0.78);
   }
   /* --- banner --- */
   if (GAME.banner.t < GAME.banner.dur) {
@@ -139,11 +150,11 @@ function drawHUD(c, time){
     c.fillStyle = "rgba(8,12,18,0.35)";
     c.fillRect(-W, -34, W * 2, 68);
     c.fillStyle = "#eaf6fa";
-    c.font = "800 34px Bahnschrift, 'Arial Narrow', sans-serif";
+    c.font = "800 " + FS(34) + "px Bahnschrift, 'Arial Narrow', sans-serif";
     c.fillText(GAME.banner.text, 0, 6);
     if (GAME.banner.sub) {
       c.fillStyle = "rgba(70,224,216,0.9)";
-      c.font = "700 13px Bahnschrift, 'Segoe UI', sans-serif";
+      c.font = "700 " + FS(13) + "px Bahnschrift, 'Segoe UI', sans-serif";
       c.fillText(GAME.banner.sub, 0, 28);
     }
     c.restore();
@@ -154,11 +165,11 @@ function drawHUD(c, time){
     const a = clamp(GAME.hintMsg.t / 0.5, 0, 1);
     c.globalAlpha = a * 0.9;
     c.fillStyle = "rgba(8,12,18,0.55)";
-    c.font = "700 12px Consolas, monospace";
+    c.font = "700 " + FS(12) + "px Consolas, monospace";
     const tw = c.measureText(GAME.hintMsg.text).width;
-    c.fillRect(W / 2 - tw / 2 - 14, H - 74, tw + 28, 26);
+    c.fillRect(W / 2 - tw / 2 - 14 * UIS, H - (74 * UIS) - SAFE.b, tw + 28 * UIS, 26 * UIS);
     c.fillStyle = "#8ffff6";
-    c.fillText(GAME.hintMsg.text, W / 2, H - 56);
+    c.fillText(GAME.hintMsg.text, W / 2, H - (56 * UIS) - SAFE.b);
     c.globalAlpha = 1;
   }
   /* --- minimap --- */
@@ -176,15 +187,15 @@ function drawHUD(c, time){
   /* --- crosshair --- */
   if (!INPUT.usingTouch && pl.alive) {
     const mx = INPUT.mouse.x, my = INPUT.mouse.y;
-    const spread = 7 + (pl.reloadT / Math.max(0.01, pl.rapidT > 0 ? 0.15 : pl.reload)) * 8;
+    const spread = (7 + (pl.reloadT / Math.max(0.01, pl.rapidT > 0 ? 0.15 : pl.reload)) * 8) * UIS;
     c.strokeStyle = "rgba(143,255,246,0.9)";
     c.lineWidth = 1.5;
-    c.beginPath(); c.arc(mx, my, 3, 0, TAU); c.stroke();
+    c.beginPath(); c.arc(mx, my, 3 * UIS, 0, TAU); c.stroke();
     for (let k = 0; k < 4; k++) {
       const a2 = k * Math.PI / 2 + Math.PI / 4;
       c.beginPath();
       c.moveTo(mx + Math.cos(a2) * spread, my + Math.sin(a2) * spread);
-      c.lineTo(mx + Math.cos(a2) * (spread + 7), my + Math.sin(a2) * (spread + 7));
+      c.lineTo(mx + Math.cos(a2) * (spread + 7 * UIS), my + Math.sin(a2) * (spread + 7 * UIS));
       c.stroke();
     }
   }
@@ -206,8 +217,8 @@ function drawHUD(c, time){
   if (SETTINGS.fps) {
     c.textAlign = "left";
     c.fillStyle = "rgba(143,255,246,0.7)";
-    c.font = "700 11px Consolas, monospace";
-    c.fillText(FPSMON.fps.toFixed(0) + " FPS · " + (SETTINGS.quality === "auto" ? ["HIGH", "MED", "LOW"][autoTier] + "*" : SETTINGS.quality.toUpperCase()), pad, H - 14);
+    c.font = "700 " + FS(11) + "px Consolas, monospace";
+    c.fillText(FPSMON.fps.toFixed(0) + " FPS · " + (SETTINGS.quality === "auto" ? ["HIGH", "MED", "LOW"][autoTier] + "*" : SETTINGS.quality.toUpperCase()), padL, H - 14 - SAFE.b);
   }
 }
 
@@ -215,6 +226,13 @@ function drawHUD(c, time){
    SECTION 14 — RENDER PIPELINE
    ================================================================ */
 let cv, ctx, W = 0, H = 0, DPR = 1;
+/* UI scale keeps HUD text legible from the smallest supported iframe
+   (800x450 @ dpr 1) up to 1920x1080 fullscreen. */
+let UIS = 1;
+function FS(px){ return Math.round(px * UIS); }
+/* Device safe-area insets (notch / rounded corners / dynamic island),
+   read from the CSS env() probe so the canvas HUD can avoid them. */
+const SAFE = { t: 0, r: 0, b: 0, l: 0 };
 
 function renderMenuBackdrop(c, time){
   const g = c.createRadialGradient(W * 0.5, H * 0.35, 60, W * 0.5, H * 0.5, Math.max(W, H) * 0.8);
@@ -308,6 +326,14 @@ function refreshMainBest(){
   document.getElementById("main-best").textContent =
     "BEST SCORE — " + fmt(SAVE.data.stats.best) + "   ·   SALVAGE — " + fmt(GAME.salvage());
 }
+/* Shows the signed-in CrazyGames username. No in-game account, no login
+   flow and no external login options — guests simply see nothing. */
+function renderOperator(){
+  const el = document.getElementById("cg-operator");
+  if (!el) return;
+  const name = CG.user && CG.user.username;
+  el.textContent = name ? "OPERATOR — " + name : "";
+}
 function renderRecords(){
   const list = document.getElementById("rec-list");
   const scores = SAVE.data.scores;
@@ -388,8 +414,12 @@ function renderOffer(containerId, rewardId){
   const blocked = CG.rewardBlockedReason();
   const salvage = GAME.salvage();
   const canBuy = salvage >= R.cost;
-  // Off-platform the ad simply does not exist — never show a dead button.
-  const showAdBtn = CG.available;
+  // Never render an ad button that cannot do anything: off-platform, and
+  // during Basic Launch (where the platform disables ads entirely), the
+  // button is removed rather than shown disabled. An adblocker is the one
+  // case that keeps a disabled button, because the docs require telling
+  // the player why the feature is blocked.
+  const showAdBtn = CG.available && !CG.adsDisabled;
 
   el.classList.add("on");
   el.innerHTML =
@@ -568,8 +598,19 @@ function resolveQuality(){
     : (QUALITY[SETTINGS.quality] || QUALITY.high);
   resize();
 }
+function readSafeArea(){
+  const el = document.getElementById("safe-probe");
+  if (!el) return;
+  const cs = getComputedStyle(el);
+  SAFE.t = parseFloat(cs.paddingTop) || 0;
+  SAFE.r = parseFloat(cs.paddingRight) || 0;
+  SAFE.b = parseFloat(cs.paddingBottom) || 0;
+  SAFE.l = parseFloat(cs.paddingLeft) || 0;
+}
 function resize(){
   W = window.innerWidth; H = window.innerHeight;
+  UIS = clamp(Math.min(W / 1280, H / 720), 1, 1.45);
+  readSafeArea();
   DPR = Math.min(window.devicePixelRatio || 1, QT.dpr);
   cv.width = Math.round(W * DPR);
   cv.height = Math.round(H * DPR);
@@ -612,7 +653,7 @@ function frame(tms){
 
   if (GAME.state === "playing") {
     if (GAME.freeze > 0) {
-      GAME.freeze--;
+      GAME.freeze -= realDt;
     } else {
       acc += realDt * GAME.timescale;
       let n = 0;
@@ -640,9 +681,14 @@ window.addEventListener("load", async () => {
   SAVE.load();
   SETTINGS = SAVE.data.settings;
   CG.applyMute();                 // honour the platform muteAudio setting
+  // Phones/tablets and the CrazyGames App start a tier down so weaker
+  // devices reach a stable frame rate immediately; auto-quality still
+  // adapts from there.
+  if (CG.device === "mobile" || CG.device === "tablet") autoTier = 1;
   resolveQuality();
   syncSettingsUI();
   refreshMainBest();
+  renderOperator();
   renderOffer("offer-main", "supply");
   CG.showBanner("banner-menu");
   INPUT.init(cv);

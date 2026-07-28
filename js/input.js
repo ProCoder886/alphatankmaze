@@ -19,8 +19,19 @@ const INPUT = {
     aim:  { id: -1, sx: 0, sy: 0, x: 0, y: 0 },
     bombTapT: 0,
   },
+  /* Pointer lock keeps the aim cursor confined to the game frame so a
+     player outside fullscreen can never click the page behind the game
+     (CrazyGames mouse-control requirement for mouse-aimed top-view
+     games). The crosshair drawn in the HUD is the custom pointer, and
+     ESC — handled natively by the browser — releases the lock. */
+  lock: { want: false, on: false, canvas: null, supported: false },
 
   init(canvas){
+    this.lock.canvas = canvas;
+    this.lock.supported = !!canvas.requestPointerLock;
+    this.mouse.x = window.innerWidth / 2;
+    this.mouse.y = window.innerHeight / 2;
+
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return void this._swallow(e);
       this.keys.add(e.code);
@@ -29,21 +40,45 @@ const INPUT = {
       this._swallow(e);
     });
     window.addEventListener("keyup", (e) => { this.keys.delete(e.code); });
-    window.addEventListener("blur", () => {
+    const dropInput = () => {
       this.keys.clear();
       this.mouse.down = false;
       if (GAME.state === "playing") GAME.pause();
+    };
+    window.addEventListener("blur", dropInput);
+    // Also pause when the tab/app is backgrounded (webview visibility fix).
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") dropInput();
     });
+
     canvas.addEventListener("mousemove", (e) => {
-      this.mouse.x = e.clientX; this.mouse.y = e.clientY;
+      if (this.lock.on) {
+        // Clamp per-event deltas: some browsers emit rare huge spikes.
+        const dx = clamp(e.movementX || 0, -180, 180);
+        const dy = clamp(e.movementY || 0, -180, 180);
+        this.mouse.x = clamp(this.mouse.x + dx, 0, window.innerWidth);
+        this.mouse.y = clamp(this.mouse.y + dy, 0, window.innerHeight);
+      } else {
+        this.mouse.x = e.clientX; this.mouse.y = e.clientY;
+      }
       this.usingPad = false;
     });
     canvas.addEventListener("mousedown", (e) => {
       AUDIO.resume();
       if (e.button === 0) this.mouse.down = true;
+      // Re-acquire the lock after the player released it with ESC.
+      if (this.lock.want && !this.lock.on) this._requestLock();
     });
     window.addEventListener("mouseup", (e) => { if (e.button === 0) this.mouse.down = false; });
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.addEventListener("pointerlockchange", () => {
+      this.lock.on = document.pointerLockElement === canvas;
+    });
+    document.addEventListener("pointerlockerror", () => { this.lock.on = false; });
+
+    /* Documented common web fixes: no page scroll from the wheel, and no
+       context menu when right-clicking outside the canvas. */
+    window.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
 
     /* touch: left half = move stick, right half = aim/fire stick */
     const touchXY = (t) => ({ x: t.clientX, y: t.clientY });
@@ -85,6 +120,33 @@ const INPUT = {
 
     window.addEventListener("gamepadconnected", (e) => { this.padIndex = e.gamepad.index; });
     window.addEventListener("gamepaddisconnected", () => { this.padIndex = -1; this.usingPad = false; });
+
+    /* iOS suspends/interrupts the AudioContext when the app is
+       backgrounded and only allows resuming from a real user gesture. */
+    const wake = () => AUDIO.resume();
+    document.addEventListener("touchend", wake, { passive: true });
+    document.addEventListener("click", wake, { passive: true });
+  },
+
+  /* Pointer lock is desktop-only and never engaged while a menu is open. */
+  setPointerLock(want){
+    this.lock.want = !!want && !this.usingTouch && this.lock.supported;
+    if (this.lock.want) this._requestLock();
+    else this._exitLock();
+  },
+  _requestLock(){
+    if (this.lock.on || !this.lock.supported) return;
+    try {
+      const r = this.lock.canvas.requestPointerLock();
+      // Chrome returns a promise that rejects without user activation.
+      if (r && typeof r.catch === "function") r.catch(() => {});
+    } catch (e) { /* re-attempted on the next canvas click */ }
+  },
+  _exitLock(){
+    if (document.pointerLockElement) {
+      try { document.exitPointerLock(); } catch (e) {}
+    }
+    this.lock.on = false;
   },
   _swallow(e){
     if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.code)) e.preventDefault();

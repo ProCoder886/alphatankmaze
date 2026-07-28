@@ -12,6 +12,7 @@
 <body class="menu-open">
 <canvas id="game"></canvas>
 <div id="crt"></div>
+<div id="safe-probe" aria-hidden="true"></div>
 
 <!-- ============ AD OVERLAY ============
      Blocks all interaction from the moment an ad is requested until
@@ -39,6 +40,9 @@
         <button class="btn" data-act="records">Service Record</button>
       </div>
       <div class="best" id="main-best">BEST SCORE — 0</div>
+      <!-- CrazyGames username, shown only when the player is signed in.
+           No in-game login flow and no external login options. -->
+      <div class="operator" id="cg-operator"></div>
       <!-- Optional rewarded-ad offer: pre-deploy supply drop -->
       <div class="offer" id="offer-main"></div>
       <!-- In-game banner: static screen only, never during gameplay -->
@@ -54,12 +58,13 @@
       <div class="scr-sub">Controls &amp; hostile intel</div>
       <div class="intel">
         <div class="intel-h">Controls — Keyboard &amp; Mouse</div>
-        <div class="k">W A S D / Arrows</div><div class="v">Drive</div>
+        <div class="k">W A S D / Arrows</div><div class="v">Drive &mdash; ZQSD on AZERTY keyboards</div>
         <div class="k">Mouse</div><div class="v">Aim turret</div>
         <div class="k">Left Mouse (hold)</div><div class="v">Cannon fire</div>
         <div class="k">SPACE</div><div class="v">Plant demolition bomb</div>
         <div class="k">SHIFT (hold)</div><div class="v">Overdrive boost</div>
-        <div class="k">P / ESC</div><div class="v">Pause</div>
+        <div class="k">P</div><div class="v">Pause</div>
+        <div class="k">ESC</div><div class="v">Release the mouse cursor</div>
         <div class="intel-h">Controls — Gamepad / Touch</div>
         <div class="k">Left stick / left thumb</div><div class="v">Drive</div>
         <div class="k">Right stick / right thumb</div><div class="v">Aim + auto-fire</div>

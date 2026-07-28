@@ -43,7 +43,12 @@ const AUDIO = {
   },
   resume(){
     this.init();
-    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+    // iOS parks the context in "interrupted" after a call or backgrounding;
+    // both states need an explicit resume from a user gesture.
+    if (this.ctx && (this.ctx.state === "suspended" || this.ctx.state === "interrupted")) {
+      const p = this.ctx.resume();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
   },
   applyVolumes(){
     if (!this.ctx) return;
