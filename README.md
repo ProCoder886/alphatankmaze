@@ -30,6 +30,47 @@ js/                 Engine, split into 10 modules — load order matters
 The modules are classic scripts sharing top-level globals, so `index.html`
 loads them in the order listed above.
 
+## Content
+
+**Superpowers** — seven activated powers on keys **1-7**, on the gamepad
+(D-pad, B, Y, R3) and as tap targets on the HUD rack for touch. Each has its
+own cooldown and a limited charge count earned by playing: kill streaks,
+cleared waves, cleared sectors and boss kills all restock them.
+
+| Key | Power | Effect |
+|---|---|---|
+| 1 | Booster Bomb | Ring of demolition charges around your tank |
+| 2 | Freeze Strike | Flash-freezes every hostile in range |
+| 3 | Explosive Shots | Your shells detonate on impact for 12s |
+| 4 | Homing Missile | Fire-and-forget missile that hunts the nearest hostile |
+| 5 | Time Bomb | Long fuse, very large blast radius |
+| 6 | Atomic Strike | Telegraphed strike called down on your aim point |
+| 7 | Guardian Drone | Escort drone that fights beside you for 16s |
+
+The rack in the top-right corner shows every power as a coloured circle with
+its key, its remaining charges and a cooldown sweep.
+
+**Game modes** — Campaign, Survival, Time Attack, Quick Battle, Endless Run,
+Free Run and Training, chosen from *Operation Type* on the menu and
+remembered between sessions.
+
+**Hostiles** — grunt, hunter, sniper, bomber, heavy, plus scout (fast, rams),
+artillery (long-range splash), guardian (regenerating shield) and stealth
+(cloaks between shots). Four bosses rotate across sectors: Command Unit,
+Titan Walker (ground-slam shockwaves), Siege Platform (mortar barrage) and
+Phantom Prototype (cloaks and blinks).
+
+**Arenas** — twelve locations and eight arena shapes (grid, diamond, rotunda,
+wedge, pentagon, hexagon, octagon, crossroad). Alongside brick there is
+reinforced stone, which needs a real blast, and watchtowers, which never fall
+and block line of sight. Every generated arena is verified fully connected, so
+a wave can never become unclearable.
+
+**Rewards** — kill-streak power charges, wave and sector-clear charges, boss
+drops, salvage from crates, and four optional rewarded-ad offers (supply drop,
+double clearance bonus, ordnance resupply, revive) that each have an
+equal-value salvage alternative.
+
 ## CrazyGames SDK integration
 
 The game integrates the [CrazyGames HTML5 SDK v3](https://docs.crazygames.com/sdk/intro/).

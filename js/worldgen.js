@@ -51,7 +51,89 @@ const THEMES = [
     brick: { base: "#7a4457", dark: "#5c3241", line: "#482734" },
     ambient: 0.64, lightTint: "rgba(10,4,22,", weather: "rain", accent: "#c98aff",
   },
+  {
+    name: "CRIMSON WASTE", sub: "Scorched badlands — red dusk",
+    floor: "#4a2a24", detail: "#5a352c", seam: "rgba(255,120,80,0.05)",
+    steel: { base: "#6b4038", light: "#8e5a4c", dark: "#3f251f", rivet: "#2c1a16" },
+    brick: { base: "#93503a", dark: "#6d3a2a", line: "#552d21" },
+    stone: { base: "#7d5a4a", dark: "#5b4036", line: "#43302a" },
+    ambient: 0.34, lightTint: "rgba(26,8,4,", weather: "dust", accent: "#ff7a45",
+  },
+  {
+    name: "TIDAL DOCKS", sub: "Flooded harbour — storm front",
+    floor: "#1d3038", detail: "#254049", seam: "rgba(120,220,255,0.05)",
+    steel: { base: "#37525e", light: "#527585", dark: "#22343c", rivet: "#182530" },
+    brick: { base: "#5f6f66", dark: "#45524b", line: "#33403a" },
+    stone: { base: "#4a6470", dark: "#33474f", line: "#26363d" },
+    ambient: 0.58, lightTint: "rgba(4,14,24,", weather: "rain", accent: "#7ef0ff",
+  },
+  {
+    name: "NEON BAZAAR", sub: "Night market — signage glow",
+    floor: "#2a1c2e", detail: "#36233c", seam: "rgba(255,120,220,0.05)",
+    steel: { base: "#4d3550", light: "#6f4f74", dark: "#312134", rivet: "#241826" },
+    brick: { base: "#8c4270", dark: "#682f53", line: "#4d2340" },
+    stone: { base: "#6d4a63", dark: "#4d3346", line: "#392636" },
+    ambient: 0.62, lightTint: "rgba(16,2,18,", weather: "rain", accent: "#ff7ad9",
+  },
+  {
+    name: "SALT FLATS", sub: "Mineral basin — high noon",
+    floor: "#cbc3a8", detail: "#bcb296", seam: "rgba(110,95,60,0.10)",
+    steel: { base: "#7d7660", light: "#a29a80", dark: "#575142", rivet: "#403b30" },
+    brick: { base: "#ad7c52", dark: "#85603e", line: "#6a4c31" },
+    stone: { base: "#a09a84", dark: "#7c7767", line: "#5d5a4e" },
+    ambient: 0.0, lightTint: "rgba(24,20,10,", weather: "dust", accent: "#ffd05c",
+  },
+  {
+    name: "CRYO VAULT", sub: "Deep storage — sub-zero",
+    floor: "#1e2a33", detail: "#26343f", seam: "rgba(140,240,255,0.06)",
+    steel: { base: "#3a4c5a", light: "#586d7e", dark: "#253239", rivet: "#1a242b" },
+    brick: { base: "#4f6a74", dark: "#3a4e56", line: "#2b3b42" },
+    stone: { base: "#5f7d88", dark: "#425760", line: "#2f4048" },
+    ambient: 0.55, lightTint: "rgba(4,12,20,", weather: "snow", accent: "#8ffff6",
+  },
+  {
+    name: "EMBER FOUNDRY", sub: "Molten works — furnace light",
+    floor: "#33221c", detail: "#3f2a22", seam: "rgba(255,150,60,0.06)",
+    steel: { base: "#54382c", light: "#77513e", dark: "#33211a", rivet: "#241611" },
+    brick: { base: "#8a4526", dark: "#66321b", line: "#4c2514" },
+    stone: { base: "#6e4a35", dark: "#4f3526", line: "#3a271c" },
+    ambient: 0.46, lightTint: "rgba(24,8,2,", weather: "ash", accent: "#ff9a3c",
+  },
 ];
+/* Themes may omit the newer tile palettes; derive them from the existing
+   ones so every theme renders stone and tower tiles consistently. */
+for (const t of THEMES) {
+  if (!t.stone) t.stone = { base: "#6b6f75", dark: "#4b4f55", line: "#35383d" };
+  if (!t.tower) t.tower = { base: t.steel.light, light: "#e9f4f8", dark: t.steel.dark, glow: t.accent };
+}
+
+/* ================================================================
+   ARENA SHAPES
+   The maze is carved inside a mask so a sector can be a rectangle,
+   diamond, circle, triangle, pentagon, hexagon, octagon or cross.
+   Coordinates are normalised to [-1,1] on both axes, so each shape
+   stretches to fill the map rather than leaving dead margins.
+   ================================================================ */
+const SHAPES = [
+  { id: "rect",     name: "GRID",      test: () => true },
+  { id: "diamond",  name: "DIAMOND",   test: (u, v) => Math.abs(u) + Math.abs(v) <= 1.04 },
+  { id: "circle",   name: "ROTUNDA",   test: (u, v) => u * u + v * v <= 1.0 },
+  { id: "triangle", name: "WEDGE",     test: (u, v) => v <= 0.92 && (v + 1) >= Math.abs(u) * 1.9 },
+  { id: "pentagon", name: "PENTAGON",  test: (u, v) => polyTest(u, v, 5, -Math.PI / 2) },
+  { id: "hexagon",  name: "HEXAGON",   test: (u, v) => polyTest(u, v, 6, 0) },
+  { id: "octagon",  name: "OCTAGON",   test: (u, v) => polyTest(u, v, 8, Math.PI / 8) },
+  { id: "cross",    name: "CROSSROAD", test: (u, v) => Math.abs(u) <= 0.42 || Math.abs(v) <= 0.42 },
+];
+/* Inside-test for a regular n-gon of circumradius 1 centred on the origin. */
+function polyTest(u, v, n, rot){
+  const apo = Math.cos(Math.PI / n);
+  for (let k = 0; k < n; k++) {
+    const a = rot + (k / n) * TAU;
+    if (u * Math.cos(a) + v * Math.sin(a) > apo) return false;
+  }
+  return true;
+}
+function shapeById(id){ return SHAPES.find(s => s.id === id) || SHAPES[0]; }
 
 class TileMap {
   constructor(cols, rows){
@@ -69,15 +151,19 @@ class TileMap {
     if (c < 0 || r < 0 || c >= this.cols || r >= this.rows) return;
     this.t[this.idx(c, r)] = v;
     if (v === 2) this.hp[this.idx(c, r)] = CFG.BRICK_HP;
+    if (v === 3) this.hp[this.idx(c, r)] = CFG.STONE_HP;
     this.dirty = true;
   }
+  /* destructible = brick or reinforced stone */
+  breakable(c, r){ const v = this.get(c, r); return v === 2 || v === 3; }
+  maxHp(c, r){ return this.get(c, r) === 3 ? CFG.STONE_HP : CFG.BRICK_HP; }
   solidAt(c, r){ return this.get(c, r) > 0; }
   solidAtXY(x, y){ return this.solidAt(Math.floor(x / CFG.TILE), Math.floor(y / CFG.TILE)); }
   cellOf(x, y){ return { c: Math.floor(x / CFG.TILE), r: Math.floor(y / CFG.TILE) }; }
   center(c, r){ return { x: c * CFG.TILE + CFG.TILE / 2, y: r * CFG.TILE + CFG.TILE / 2 }; }
   /* returns 0 = no effect, 1 = damaged, 2 = destroyed */
   damageTile(c, r, d){
-    if (this.get(c, r) !== 2) return 0;
+    if (!this.breakable(c, r)) return 0;
     const i = this.idx(c, r);
     this.hp[i] = Math.max(0, this.hp[i] - d);
     this.dirty = true;
@@ -85,7 +171,7 @@ class TileMap {
     return 1;
   }
   destroyBrick(c, r){
-    if (this.get(c, r) !== 2) return false;
+    if (!this.breakable(c, r)) return false;
     this.t[this.idx(c, r)] = 0;
     this.dirty = true;
     return true;
@@ -145,6 +231,57 @@ class TileMap {
         if (((cc * 7 + r * 13) % 5) === 0) { // panel variation
           c.fillStyle = "rgba(0,0,0,0.10)";
           c.fillRect(x + 6, y + 6, T - 12, T - 12);
+        }
+      } else if (v === 4) {
+        // tower: tall reinforced pillar, indestructible, blocks sight
+        c.fillStyle = theme.tower.dark;
+        c.fillRect(x, y, T, T);
+        c.fillStyle = theme.tower.base;
+        c.fillRect(x + 3, y + 3, T - 6, T - 6);
+        c.fillStyle = theme.tower.light;
+        c.fillRect(x + 3, y + 3, T - 6, 3);
+        c.strokeStyle = theme.tower.dark;
+        c.lineWidth = 2;
+        c.strokeRect(x + 7.5, y + 7.5, T - 15, T - 15);
+        // crenellations
+        c.fillStyle = theme.tower.dark;
+        for (let k = 0; k < 3; k++) c.fillRect(x + 6 + k * 14, y + 1, 8, 4);
+        // beacon
+        c.fillStyle = theme.tower.glow;
+        c.globalAlpha = 0.85;
+        c.beginPath(); c.arc(x + T / 2, y + T / 2, 4, 0, TAU); c.fill();
+        c.globalAlpha = 1;
+      } else if (v === 3) {
+        // stone: heavy irregular blockwork, tougher than brick
+        c.fillStyle = theme.stone.base;
+        c.fillRect(x, y, T, T);
+        c.fillStyle = theme.stone.dark;
+        c.fillRect(x, y + T - 4, T, 4); c.fillRect(x + T - 4, y, 4, T);
+        c.strokeStyle = theme.stone.line;
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(x, y + T / 2); c.lineTo(x + T, y + T / 2);
+        const off3 = ((cc + r) % 2) * (T / 3);
+        c.moveTo(x + T / 3 + off3, y); c.lineTo(x + T / 3 + off3, y + T / 2);
+        c.moveTo(x + T * 0.6 - off3, y + T / 2); c.lineTo(x + T * 0.6 - off3, y + T);
+        c.stroke();
+        // chipped highlights
+        c.fillStyle = "rgba(255,255,255,0.05)";
+        c.fillRect(x + 5, y + 4, T - 10, 3);
+        const hp3 = this.hp[this.idx(cc, r)];
+        if (hp3 < CFG.STONE_HP) {
+          c.strokeStyle = "rgba(0,0,0,0.5)";
+          c.lineWidth = 1.8;
+          c.beginPath();
+          const n3 = Math.min(5, CFG.STONE_HP - hp3);
+          let px3 = x + T / 2, py3 = y + T / 2;
+          for (let i = 0; i < n3; i++) {
+            const nx = x + 5 + (((cc * 29 + r * 19 + i * 41) % 100) / 100) * (T - 10);
+            const ny = y + 5 + (((cc * 11 + r * 37 + i * 23) % 100) / 100) * (T - 10);
+            c.moveTo(px3, py3); c.lineTo(nx, ny);
+            px3 = nx; py3 = ny;
+          }
+          c.stroke();
         }
       } else {
         // brick with mortar courses
@@ -225,40 +362,66 @@ function buildFloor(map, theme, rng){
   return cv;
 }
 
-/* ---- braided maze generator ---- */
-function genLevel(level){
-  const rng = mulberry32(0xC0FFEE ^ (level * 2654435761));
+/* ---- braided maze generator ----
+   Carves inside the sector's arena shape, braids dead ends into loops,
+   opens rooms, seeds stone and tower tiles, then guarantees every
+   remaining floor cell is reachable from the player's spawn so a wave
+   can never become unclearable. ---- */
+function genLevel(level, opts){
+  opts = opts || {};
+  const rng = mulberry32((opts.seed !== undefined ? opts.seed : 0xC0FFEE) ^ (level * 2654435761));
   let cols = clamp(29 + level * 2, 29, 51);
   let rows = clamp(19 + Math.floor(level * 1.2), 19, 31);
   if (cols % 2 === 0) cols++;
   if (rows % 2 === 0) rows++;
   const map = new TileMap(cols, rows);
   map.t.fill(1);
-  // recursive backtracker on odd lattice
-  const stack = [[1, 1]];
-  map.set(1, 1, 0);
+
+  const shape = opts.shape ? shapeById(opts.shape) : SHAPES[(level - 1) % SHAPES.length];
+  const inShape = (c, r) => {
+    if (c <= 0 || r <= 0 || c >= cols - 1 || r >= rows - 1) return false;
+    const u = (c / (cols - 1)) * 2 - 1;
+    const v = (r / (rows - 1)) * 2 - 1;
+    return shape.test(u, v);
+  };
+  // odd-lattice start cell that lies inside the shape
+  let sc = 1, sr = 1, found = false;
+  const midC = ((cols / 2) | 0) | 1, midR = ((rows / 2) | 0) | 1;
+  outerStart: for (let ring = 0; ring < Math.max(cols, rows); ring++) {
+    for (let dr = -ring; dr <= ring; dr += 2) for (let dc = -ring; dc <= ring; dc += 2) {
+      const c = midC + dc, r = midR + dr;
+      if (c > 0 && r > 0 && c < cols - 1 && r < rows - 1 && inShape(c, r)) {
+        sc = c; sr = r; found = true; break outerStart;
+      }
+    }
+  }
+  if (!found) { sc = midC; sr = midR; }
+
+  // recursive backtracker restricted to the shape
+  const stack = [[sc, sr]];
+  map.set(sc, sr, 0);
   const DIRS = [[2, 0], [-2, 0], [0, 2], [0, -2]];
   while (stack.length) {
     const [c, r] = stack[stack.length - 1];
-    const opts = [];
+    const opts2 = [];
     for (const [dc, dr] of DIRS) {
       const nc = c + dc, nr = r + dr;
-      if (nc > 0 && nr > 0 && nc < cols - 1 && nr < rows - 1 && map.get(nc, nr) === 1) opts.push([dc, dr]);
+      if (inShape(nc, nr) && inShape(c + dc / 2, r + dr / 2) && map.get(nc, nr) === 1) opts2.push([dc, dr]);
     }
-    if (!opts.length) { stack.pop(); continue; }
-    const [dc, dr] = opts[(rng() * opts.length) | 0];
+    if (!opts2.length) { stack.pop(); continue; }
+    const [dc, dr] = opts2[(rng() * opts2.length) | 0];
     map.set(c + dc / 2, r + dr / 2, 0);
     map.set(c + dc, r + dr, 0);
     stack.push([c + dc, r + dr]);
   }
-  // braid: open ~45% of dead ends so AI has loops to flank through
+  // braid: open ~45% of dead ends so the AI has loops to flank through
   for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
     if (map.get(c, r) !== 0) continue;
     const walls = [];
-    if (map.get(c + 1, r) === 1 && c + 1 < cols - 1) walls.push([c + 1, r]);
-    if (map.get(c - 1, r) === 1 && c - 1 > 0) walls.push([c - 1, r]);
-    if (map.get(c, r + 1) === 1 && r + 1 < rows - 1) walls.push([c, r + 1]);
-    if (map.get(c, r - 1) === 1 && r - 1 > 0) walls.push([c, r - 1]);
+    if (map.get(c + 1, r) === 1 && inShape(c + 1, r)) walls.push([c + 1, r]);
+    if (map.get(c - 1, r) === 1 && inShape(c - 1, r)) walls.push([c - 1, r]);
+    if (map.get(c, r + 1) === 1 && inShape(c, r + 1)) walls.push([c, r + 1]);
+    if (map.get(c, r - 1) === 1 && inShape(c, r - 1)) walls.push([c, r - 1]);
     if (walls.length === 3 && rng() < 0.45) {
       const w = walls[(rng() * walls.length) | 0];
       map.set(w[0], w[1], 0);
@@ -270,27 +433,76 @@ function genLevel(level){
     const rw = 3 + 2 * ((rng() * 2) | 0), rh = 3 + 2 * ((rng() * 2) | 0);
     const rc = 1 + 2 * ((rng() * ((cols - rw - 2) / 2)) | 0);
     const rr = 1 + 2 * ((rng() * ((rows - rh - 2) / 2)) | 0);
+    let touches = false;
+    for (let r = rr; r < Math.min(rows - 1, rr + rh) && !touches; r++)
+      for (let c = rc; c < Math.min(cols - 1, rc + rw); c++)
+        if (inShape(c, r) && map.get(c, r) === 0) { touches = true; break; }
+    if (!touches) continue;                 // never carve an island room
     for (let r = rr; r < Math.min(rows - 1, rr + rh); r++)
       for (let c = rc; c < Math.min(cols - 1, rc + rw); c++)
-        map.set(c, r, 0);
+        if (inShape(c, r)) map.set(c, r, 0);
   }
-  // convert interior walls to destructible brick
+  // convert interior walls to destructible brick, with tougher stone
+  // appearing more often on later sectors
   const brickChance = clamp(0.42 + level * 0.015, 0.42, 0.6);
+  const stoneShare = clamp(0.12 + level * 0.03, 0.12, 0.45);
   for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
-    if (map.get(c, r) !== 1) continue;
-    const nearFloor = map.get(c + 1, r) === 0 || map.get(c - 1, r) === 0 || map.get(c, r + 1) === 0 || map.get(c, r - 1) === 0;
-    if (nearFloor && rng() < brickChance) map.set(c, r, 2);
+    if (map.get(c, r) !== 1 || !inShape(c, r)) continue;
+    const nearFloor = map.get(c + 1, r) === 0 || map.get(c - 1, r) === 0 ||
+                      map.get(c, r + 1) === 0 || map.get(c, r - 1) === 0;
+    if (nearFloor && rng() < brickChance) map.set(c, r, rng() < stoneShare ? 3 : 2);
   }
-  // player spawn: near top-left open cell
-  let playerCell = [1, 1];
+  // watchtowers: indestructible pillars dropped into open ground for cover.
+  // Only placed where they leave the surrounding cells walkable.
+  const towerN = Math.min(6, 1 + Math.floor(level / 2));
+  let tTries = 0;
+  for (let i = 0; i < towerN && tTries < 200; ) {
+    tTries++;
+    const c = 2 + ((rng() * (cols - 4)) | 0), r = 2 + ((rng() * (rows - 4)) | 0);
+    if (map.get(c, r) !== 0 || !inShape(c, r)) continue;
+    let open = 0;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (map.get(c + dc, r + dr) === 0) open++;
+    if (open < 3) continue;                 // never plug a corridor
+    map.set(c, r, 4);
+    i++;
+  }
+
+  /* Connectivity pass. Flood fill from the maze's own start cell, which is
+     always part of the carved network, treating brick and stone as passable
+     (they can be blown open). Any floor cell still unreachable is sealed to
+     steel, so enemies can never spawn somewhere the player cannot go —
+     which would leave a wave permanently active. */
+  const seen = new Uint8Array(cols * rows);
+  const queue = [sr * cols + sc];
+  seen[queue[0]] = 1;
+  for (let qi = 0; qi < queue.length; qi++) {
+    const i = queue[qi], c = i % cols, r = (i / cols) | 0;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dc, nr = r + dr;
+      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+      const ni = nr * cols + nc;
+      if (seen[ni]) continue;
+      const v = map.get(nc, nr);
+      if (v === 1 || v === 4) continue;     // steel and towers block for good
+      seen[ni] = 1;
+      queue.push(ni);
+    }
+  }
+  for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
+    if (map.get(c, r) === 0 && !seen[r * cols + c]) map.set(c, r, 1);
+  }
+
+  // player spawn: first surviving (therefore reachable) floor cell
+  let playerCell = [sc, sr];
   outer: for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++)
     if (map.get(c, r) === 0) { playerCell = [c, r]; break outer; }
   const ps = map.center(playerCell[0], playerCell[1]);
   // clear a small safe pocket around spawn
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
     const cc = playerCell[0] + dc, rr = playerCell[1] + dr;
-    if (cc > 0 && rr > 0 && cc < cols - 1 && rr < rows - 1 && map.get(cc, rr) === 2) map.set(cc, rr, 0);
+    if (cc > 0 && rr > 0 && cc < cols - 1 && rr < rows - 1 && map.breakable(cc, rr)) map.set(cc, rr, 0);
   }
+
   // barrels: floor cells away from spawn
   const barrels = [];
   const want = 7 + level;
@@ -303,8 +515,8 @@ function genLevel(level){
     if (barrels.some(b => Math.abs(b.c - c) + Math.abs(b.r - r) < 3)) continue;
     barrels.push({ c, r });
   }
-  const theme = THEMES[(level - 1) % THEMES.length];
-  return { map, theme, floorCv: buildFloor(map, theme, rng), playerSpawn: ps, barrels, rng };
+  const theme = opts.theme ? THEMES[opts.theme % THEMES.length] : THEMES[(level - 1) % THEMES.length];
+  return { map, theme, shape, floorCv: buildFloor(map, theme, rng), playerSpawn: ps, barrels, rng };
 }
 
 /* ---- A* pathfinding (4-dir, optional brick-breach costing) ---- */
@@ -315,6 +527,7 @@ function findPath(map, sc, sr, tc, tr, opts){
     const v = map.get(c, r);
     if (v === 0) return 1;
     if (v === 2 && opts.breach) return 6;
+    if (v === 3 && opts.breach) return 12;
     return 0;
   };
   if (!passCost(tc, tr)) {

@@ -33,11 +33,14 @@ function explode(x, y, opts){
     const c0 = Math.floor((x - radius) / T), c1 = Math.floor((x + radius) / T);
     const r0 = Math.floor((y - radius) / T), r1 = Math.floor((y + radius) / T);
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
-      if (map.get(c, r) !== 2) continue;
+      const tv = map.get(c, r);
+      if (tv !== 2 && tv !== 3) continue;
       const cx = c * T + T / 2, cy = r * T + T / 2;
       if (dist2(x, y, cx, cy) < (radius * 0.95) ** 2) {
+        // stone shrugs off weak blasts; only strong ones level it
+        if (tv === 3 && radius < 100) { map.damageTile(c, r, 3); continue; }
         map.destroyBrick(c, r);
-        fxBrickBurst(cx, cy, WORLD.theme.brick.base);
+        fxBrickBurst(cx, cy, tv === 3 ? WORLD.theme.stone.base : WORLD.theme.brick.base);
         if (owner === WORLD.player) GAME.stats.bricks++;
       }
     }
@@ -79,6 +82,8 @@ function spawnShell(owner, x, y, ang, spec){
     bounces: spec.bounces !== undefined ? spec.bounces : 1,
     brickDmg: spec.brickDmg || 1,
     color: spec.color || "#ffd27a",
+    explosive: !!spec.explosive,
+    splash: spec.splash || 0,
     life: 3.2,
     trailT: 0,
   });
@@ -86,6 +91,10 @@ function spawnShell(owner, x, y, ang, spec){
 function killShell(s, i, sparkColor){
   fxSparkBurst(s.x, s.y, 6, sparkColor || s.color);
   WORLD.shells.splice(i, 1);
+  // Explosive Shots superpower: every impact becomes a small blast
+  if (s.explosive) explode(s.x, s.y, { radius: 66, dmg: 30, owner: s.owner });
+  // artillery shells burst on impact
+  else if (s.splash) explode(s.x, s.y, { radius: s.splash, dmg: s.dmg * 0.8, owner: s.owner });
 }
 function updateShells(dt){
   const map = WORLD.map, T = CFG.TILE;
@@ -105,10 +114,10 @@ function updateShells(dt){
       const c = Math.floor(s.x / T), r = Math.floor(s.y / T);
       const v = map.get(c, r);
       if (v > 0) {
-        if (v === 2) {
+        if (v === 2 || v === 3) {
           const res = map.damageTile(c, r, s.brickDmg);
           if (res === 2) {
-            fxBrickBurst(c * T + T / 2, r * T + T / 2, WORLD.theme.brick.base);
+            fxBrickBurst(c * T + T / 2, r * T + T / 2, v === 3 ? WORLD.theme.stone.base : WORLD.theme.brick.base);
             AUDIO.brickBreak();
             if (s.owner === WORLD.player) GAME.stats.bricks++;
           } else {
@@ -204,7 +213,8 @@ function plantBomb(x, y, owner, opts){
     radius: opts.radius || CFG.BOMB_RADIUS,
     dmg: opts.dmg || CFG.BOMB_DMG,
     beepT: 0,
-    color: owner.team === "player" ? "#46e0d8" : "#ff7a45",
+    big: !!opts.big,
+    color: opts.big ? "#c98aff" : (owner.team === "player" ? "#46e0d8" : "#ff7a45"),
   });
   AUDIO.bombPlant();
 }
@@ -229,17 +239,18 @@ function drawBombs(c, time){
     const pulse = 0.6 + 0.4 * Math.sin(time * (b.fuse < 0.4 ? 40 : 14));
     c.save();
     c.translate(b.x, b.y);
+    const br = b.big ? 15 : 10;
     c.fillStyle = "#23282e";
-    c.beginPath(); c.arc(0, 0, 10, 0, TAU); c.fill();
+    c.beginPath(); c.arc(0, 0, br, 0, TAU); c.fill();
     c.strokeStyle = b.color;
     c.lineWidth = 2;
-    c.beginPath(); c.arc(0, 0, 10, 0, TAU); c.stroke();
+    c.beginPath(); c.arc(0, 0, br, 0, TAU); c.stroke();
     c.globalAlpha = pulse;
     c.fillStyle = b.color;
-    c.beginPath(); c.arc(0, 0, 4, 0, TAU); c.fill();
+    c.beginPath(); c.arc(0, 0, br * 0.4, 0, TAU); c.fill();
     c.globalAlpha = 1;
     c.restore();
-    LIGHTS.add(b.x, b.y, 50 * pulse, 0.5);
+    LIGHTS.add(b.x, b.y, (b.big ? 80 : 50) * pulse, 0.5);
   }
 }
 

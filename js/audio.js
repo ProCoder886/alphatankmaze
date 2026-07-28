@@ -152,6 +152,21 @@ const AUDIO = {
     this.noise({ dur: 0.5, filter: "highpass", ff: 800, ff2: 4000, vol: 0.14 });
   },
   laserLock(){ this.tone({ f: 1450, dur: 0.06, type: "sine", vol: 0.07 }); },
+  /* --- superpower SFX --- */
+  freeze(){
+    this.tone({ f: 1800, f2: 320, dur: 0.5, type: "sine", vol: 0.18 });
+    this.noise({ dur: 0.45, filter: "highpass", ff: 5200, ff2: 1200, vol: 0.14 });
+  },
+  missile(){
+    this.noise({ dur: 0.4, filter: "lowpass", ff: 900, ff2: 2600, vol: 0.2, attack: 0.02 });
+    this.tone({ f: 220, f2: 520, dur: 0.35, type: "sawtooth", vol: 0.12 });
+  },
+  powerUp(){
+    const t = this.now();
+    this.tone({ t, f: 520, dur: 0.08, type: "triangle", vol: 0.14 });
+    this.tone({ t: t + 0.07, f: 780, dur: 0.08, type: "triangle", vol: 0.14 });
+    this.tone({ t: t + 0.14, f: 1170, dur: 0.16, type: "triangle", vol: 0.14 });
+  },
   uiClick(){ this.resume(); this.tone({ f: 740, f2: 620, dur: 0.05, type: "triangle", vol: 0.1 }); },
   waveFanfare(){
     const t = this.now();

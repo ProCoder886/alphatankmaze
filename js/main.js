@@ -113,15 +113,31 @@ function drawHUD(c, time){
     c.fillStyle = "#8ffff6";
     c.fillRect(W - padR - cw * pct, padT + FS(66), cw * pct, 4 * UIS);
   }
+  /* --- superpower rack (top-right, under the score) --- */
+  const rackTop = padT + FS(GAME.combo.n > 1 ? 74 : 46);
+  drawPowerRack(c, time, W - padR, rackTop);
   /* --- top-center: sector / wave --- */
   c.textAlign = "center";
   c.fillStyle = "rgba(223,233,238,0.65)";
   c.font = "700 " + FS(11) + "px Bahnschrift, 'Segoe UI', sans-serif";
-  let waveTxt = "SECTOR " + GAME.level + "  ·  WAVE " + Math.max(1, GAME.wave) + "/" + GAME.wavesTotal;
+  const MD = GAME.def();
+  let waveTxt = MD.name + "  ·  ";
+  if (MD.noEnemies) waveTxt += "SECTOR " + GAME.level + "  ·  TARGETS " + GAME.barrelsLeft;
+  else if (MD.survival) waveTxt += "WAVE " + Math.max(1, GAME.wave);
+  else waveTxt += "SECTOR " + GAME.level + "  ·  WAVE " + Math.max(1, GAME.wave) + "/" + GAME.wavesTotal;
   if (GAME.modifier && GAME.waveState === "active") waveTxt += "  ·  " + GAME.modifier.label;
   c.fillText(waveTxt, W / 2, padT + FS(9));
+  // Time Attack clock, red and pulsing in the last ten seconds
+  if (MD.timeLimit) {
+    const low = GAME.timeLeft <= 10;
+    c.fillStyle = low ? "#ff4d5e" : "#eaf6fa";
+    c.font = "700 " + FS(low ? 24 : 20) + "px Consolas, monospace";
+    c.globalAlpha = low ? 0.65 + 0.35 * Math.abs(Math.sin(time * 8)) : 1;
+    c.fillText(padTime(Math.ceil(GAME.timeLeft)), W / 2, padT + FS(34));
+    c.globalAlpha = 1;
+  }
   /* --- boss bar --- */
-  const boss = WORLD.enemies.find(e => e.type === "boss" && e.alive);
+  const boss = WORLD.enemies.find(e => e.boss && e.alive);
   if (boss) {
     const bw2 = Math.min(420 * UIS, W * 0.55);
     const bossH = Math.round(12 * UIS);
@@ -134,7 +150,7 @@ function drawHUD(c, time){
     chamferBar(c, bx2, by2, bw2, bossH); c.stroke();
     c.fillStyle = "#ffb0b8";
     c.font = "700 " + FS(9) + "px Consolas, monospace";
-    c.fillText("COMMAND UNIT", W / 2, by2 + bossH * 0.78);
+    c.fillText(boss.def.title || "COMMAND UNIT", W / 2, by2 + bossH * 0.78);
   }
   /* --- banner --- */
   if (GAME.banner.t < GAME.banner.dur) {
@@ -285,9 +301,12 @@ function render(time){
   drawBombs(ctx, time);
   drawBarrels(ctx);
   drawPickups(ctx, time);
+  drawStrikes(ctx, time);
   for (const e of WORLD.enemies) e.draw(ctx, time);
   if (WORLD.player) WORLD.player.draw(ctx, time);
+  drawDrones(ctx, time);
   drawShells(ctx);
+  drawMissiles(ctx);
   PARTS.draw(ctx, 1);
   CAM.end(ctx);
   // dynamic lighting overlay
@@ -392,6 +411,27 @@ const REWARDS = {
     },
     done: "Clearance bonus doubled.",
   },
+  power: {
+    eyebrow: "Optional bonus — Ordnance resupply",
+    desc: () => "Refill <b>two charges</b> of a superpower that is running low.",
+    label: "Resupply",
+    cost: 90,
+    avail: () => POWERS.DEFS.some(p => (POWERS.charges[p.id] | 0) < p.cap),
+    grant(){
+      const p = POWERS.grantRandom(2);
+      this.done = p ? "+2 " + p.name + " charges." : "Ordnance topped up.";
+    },
+    done: "Ordnance resupplied.",
+  },
+  overcharge: {
+    eyebrow: "Optional bonus — Full overcharge",
+    desc: () => "Adds <b>one charge to every superpower</b> before you deploy.",
+    label: "Overcharge",
+    cost: 200,
+    avail: () => POWERS.DEFS.some(p => (POWERS.charges[p.id] | 0) < p.cap),
+    grant(){ POWERS.grantAll(1); },
+    done: "Every superpower charged.",
+  },
   revive: {
     eyebrow: "Optional bonus — Field repair drone",
     desc: () => "Redeploy in <b>Sector " + GAME.level + "</b> with full hull, shield and +2 bombs. <b>Score kept.</b>",
@@ -485,6 +525,26 @@ async function claimReward(rewardId, containerId, viaAd){
   SAVE.persist();
 }
 
+/* ================================================================
+   OPERATION TYPE (game mode) SELECTION
+   ================================================================ */
+function renderModes(){
+  const el = document.getElementById("mode-list");
+  if (!el) return;
+  el.innerHTML = MODE_ORDER.map(id => {
+    const M = MODES[id];
+    const on = GAME.mode === id ? " on" : "";
+    return '<button class="mode-card' + on + '" data-act="mode-pick" data-mode="' + id + '">' +
+             '<span class="mode-name">' + M.name + "</span>" +
+             '<span class="mode-sub">' + M.sub + "</span>" +
+           "</button>";
+  }).join("");
+}
+function refreshModeLabel(){
+  const el = document.getElementById("main-mode");
+  if (el) el.textContent = "OPERATION — " + GAME.def().name;
+}
+
 function syncSettingsUI(){
   const s = SETTINGS;
   const setRange = (id, v) => {
@@ -519,6 +579,15 @@ function bindUI(){
         showScreen("scr-set");
         break;
       case "records": renderRecords(); showScreen("scr-rec"); break;
+      case "modes": renderModes(); showScreen("scr-modes"); break;
+      case "mode-pick":
+        GAME.mode = btn.dataset.mode;
+        SAVE.data.lastMode = GAME.mode;
+        SAVE.persist();
+        renderModes();
+        refreshModeLabel();
+        showScreen("scr-main");
+        break;
       case "back-main": showScreen("scr-main"); break;
       case "set-back":
         SAVE.persist();
@@ -688,7 +757,10 @@ window.addEventListener("load", async () => {
   resolveQuality();
   syncSettingsUI();
   refreshMainBest();
+  if (SAVE.data.lastMode && MODES[SAVE.data.lastMode]) GAME.mode = SAVE.data.lastMode;
   renderOperator();
+  refreshModeLabel();
+  renderModes();
   renderOffer("offer-main", "supply");
   CG.showBanner("banner-menu");
   INPUT.init(cv);

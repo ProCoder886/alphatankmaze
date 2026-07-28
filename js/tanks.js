@@ -33,6 +33,7 @@ class Tank {
     this.shieldHp = 0; this.shieldT = 0;
     this.invuln = 0;
     this.stun = 0;
+    this.frozenT = 0;   // Freeze Strike ice overlay
     this.spawnT = 0;
     this.recoil = 0;
     this.treadT = 0;
@@ -55,10 +56,14 @@ class Tank {
         fxRing(this.x, this.y, 30 + this.spawnT * 40, this.style.accent, 0.2);
       return;
     }
+    if (this.frozenT > 0) this.frozenT -= dt;
     if (this.stun > 0) {
       this.stun -= dt;
       this.moveIn.x = 0; this.moveIn.y = 0;
-      if (chance(dt * 14)) fxSparkBurst(this.x + rand(-10, 10), this.y + rand(-10, 10), 2, "#c98aff");
+      if (this.frozenT > 0) {
+        if (chance(dt * 10)) PARTS.spawn({ x: this.x + rand(-12, 12), y: this.y + rand(-12, 12),
+          vy: rand(-20, -6), type: "snow", size: rand(1.2, 2.4), life: 0.6, color: "#bffcff", layer: 1 });
+      } else if (chance(dt * 14)) fxSparkBurst(this.x + rand(-10, 10), this.y + rand(-10, 10), 2, "#c98aff");
     } else if (this.think) {
       this.think(dt, w);
     }
@@ -238,6 +243,22 @@ class Tank {
       c.fill();
       c.globalAlpha = 1;
     }
+    // freeze shell
+    if (this.frozenT > 0) {
+      c.globalAlpha = 0.5;
+      c.fillStyle = "rgba(150,240,255,0.35)";
+      c.beginPath(); c.arc(0, 0, this.radius + 5, 0, TAU); c.fill();
+      c.strokeStyle = "#bffcff";
+      c.lineWidth = 1.6;
+      c.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a2 = (k / 6) * TAU;
+        c.moveTo(Math.cos(a2) * (this.radius * 0.4), Math.sin(a2) * (this.radius * 0.4));
+        c.lineTo(Math.cos(a2) * (this.radius + 5), Math.sin(a2) * (this.radius + 5));
+      }
+      c.stroke();
+      c.globalAlpha = 1;
+    }
     // stun indicator
     if (this.stun > 0) {
       c.fillStyle = "#c98aff";
@@ -272,6 +293,7 @@ class Player extends Tank {
     this.bombCd = 0;
     this.boost = 1;
     this.rapidT = 0; this.tripleT = 0; this.speedT = 0;
+    this.exploShotT = 0;   // Explosive Shots superpower
     this.invuln = 1.2;
     this.exhaustT = 0;
     this.shell = { spd: 560, dmg: 20, r: 4, bounces: 1, color: "#8ffff6", brickDmg: 1 };
@@ -287,7 +309,9 @@ class Player extends Tank {
     this.rapidT = Math.max(0, this.rapidT - dt);
     this.tripleT = Math.max(0, this.tripleT - dt);
     this.speedT = Math.max(0, this.speedT - dt);
+    this.exploShotT = Math.max(0, this.exploShotT - dt);
     this.bombCd = Math.max(0, this.bombCd - dt);
+    POWERS.pollInput(this, w);
     // movement
     const mv = INPUT.moveAxis();
     this.moveIn.x = mv.x; this.moveIn.y = mv.y;
@@ -317,6 +341,7 @@ class Player extends Tank {
       this.reloadT = this.rapidT > 0 ? 0.15 : this.reload;
       const spec = Object.assign({}, this.shell);
       if (this.rapidT > 0) spec.dmg = 16;
+      if (this.exploShotT > 0) { spec.explosive = true; spec.color = "#ffd05c"; }
       if (this.tripleT > 0) {
         const tri = Object.assign({}, spec, { dmg: Math.round(spec.dmg * 0.72) });
         this.fireShell(tri, -0.16);
@@ -397,24 +422,87 @@ const ENEMY_TYPES = {
     score: 320, cost: 11, barrelLen: 28, twin: true,
     style: { hull: "#6a4a8a", dark: "#38264d", accent: "#c98aff", barrel: "#4e3566" },
   },
+  scout: {
+    hp: 26, speed: 186, accel: 11, turn: 9, turretSpd: 6.5, reload: 1.5,
+    radius: 11, mass: 0.7, range: 300, prefDist: 90, aimErr: 0.2, lead: 0.6,
+    shell: { spd: 470, dmg: 6, r: 3, bounces: 0, color: "#b6ff7a", brickDmg: 1 },
+    score: 130, cost: 3, barrelLen: 15, ram: 14,
+    style: { hull: "#5c8a3c", dark: "#2f4a1e", accent: "#b6ff7a", barrel: "#446b2c" },
+  },
+  artillery: {
+    hp: 70, speed: 62, accel: 4.5, turn: 3.4, turretSpd: 1.9, reload: 3.8,
+    radius: 18, mass: 1.5, range: 860, prefDist: 560, aimErr: 0.05, lead: 1.0,
+    shell: { spd: 300, dmg: 20, r: 6, bounces: 0, color: "#ffa8d8", brickDmg: 3, splash: 92 },
+    score: 260, cost: 8, barrelLen: 32,
+    style: { hull: "#8a4a72", dark: "#4d2740", accent: "#ffa8d8", barrel: "#663253" },
+  },
+  guardian: {
+    hp: 96, speed: 86, accel: 5.5, turn: 4.6, turretSpd: 3.0, reload: 2.3,
+    radius: 18, mass: 1.5, range: 430, prefDist: 260, aimErr: 0.13, lead: 0.5,
+    shell: { spd: 400, dmg: 12, r: 4.5, bounces: 1, color: "#9ad8ff", brickDmg: 1 },
+    score: 300, cost: 9, barrelLen: 22, shieldMax: 55, shieldRegen: 9,
+    style: { hull: "#33607f", dark: "#1c3446", accent: "#9ad8ff", barrel: "#264a63" },
+  },
+  stealth: {
+    hp: 44, speed: 126, accel: 8, turn: 7, turretSpd: 5.0, reload: 2.0,
+    radius: 13, mass: 0.85, range: 380, prefDist: 150, aimErr: 0.12, lead: 0.7,
+    shell: { spd: 460, dmg: 13, r: 3.5, bounces: 0, color: "#d0b0ff", brickDmg: 1 },
+    score: 280, cost: 8, barrelLen: 20, cloak: true,
+    style: { hull: "#4a3f6b", dark: "#28223c", accent: "#d0b0ff", barrel: "#372e52" },
+  },
   boss: {
+    boss: true, title: "COMMAND UNIT",
     hp: 650, speed: 66, accel: 4.5, turn: 3.4, turretSpd: 2.8, reload: 2.0,
     radius: 30, mass: 3, range: 620, prefDist: 300, aimErr: 0.1, lead: 0.7,
     shell: { spd: 430, dmg: 14, r: 5, bounces: 1, color: "#ff4d5e", brickDmg: 2 },
     score: 2500, cost: 0, barrelLen: 40, twin: true,
+    attacks: ["radial", "charge"],
     style: { hull: "#8a2e38", dark: "#471219", accent: "#ff4d5e", barrel: "#631e26" },
   },
+  titan: {
+    boss: true, title: "TITAN WALKER",
+    hp: 900, speed: 52, accel: 3.4, turn: 2.6, turretSpd: 2.2, reload: 2.4,
+    radius: 34, mass: 4.2, range: 560, prefDist: 260, aimErr: 0.12, lead: 0.6,
+    shell: { spd: 400, dmg: 18, r: 6, bounces: 1, color: "#ffc24d", brickDmg: 3 },
+    score: 3200, cost: 0, barrelLen: 42, twin: true,
+    attacks: ["shockwave", "charge"],
+    style: { hull: "#8a6a2e", dark: "#4a3812", accent: "#ffc24d", barrel: "#6b5220" },
+  },
+  siege: {
+    boss: true, title: "SIEGE PLATFORM",
+    hp: 780, speed: 44, accel: 3.0, turn: 2.2, turretSpd: 1.7, reload: 2.8,
+    radius: 32, mass: 4.6, range: 900, prefDist: 480, aimErr: 0.07, lead: 0.95,
+    shell: { spd: 340, dmg: 16, r: 6.5, bounces: 0, color: "#ffa8d8", brickDmg: 3, splash: 96 },
+    score: 3000, cost: 0, barrelLen: 46,
+    attacks: ["barrage", "radial"],
+    style: { hull: "#7d3a63", dark: "#421e35", accent: "#ffa8d8", barrel: "#5c2c49" },
+  },
+  phantom: {
+    boss: true, title: "PHANTOM PROTOTYPE",
+    hp: 700, speed: 104, accel: 6.5, turn: 5.2, turretSpd: 4.2, reload: 1.7,
+    radius: 27, mass: 2.6, range: 620, prefDist: 240, aimErr: 0.08, lead: 0.85,
+    shell: { spd: 500, dmg: 15, r: 5, bounces: 1, color: "#c9a0ff", brickDmg: 2 },
+    score: 3400, cost: 0, barrelLen: 36, cloak: true,
+    attacks: ["blink", "radial"],
+    style: { hull: "#5a3f8a", dark: "#2e2049", accent: "#c9a0ff", barrel: "#432f68" },
+  },
 };
+/* Boss roster in the order sectors present them. */
+const BOSS_ORDER = ["boss", "titan", "siege", "phantom"];
+function bossTypeForLevel(level){
+  return BOSS_ORDER[Math.max(0, Math.floor(level / 3) - 1) % BOSS_ORDER.length];
+}
 
 class Enemy extends Tank {
   constructor(type, x, y, level, mods){
     super(x, y, "enemy");
     this.type = type;
     const D = ENEMY_TYPES[type];
+    this.boss = !!D.boss;
     this.def = D;
     mods = mods || {};
     const hpScale = (1 + (level - 1) * 0.07) * (mods.hp || 1) * DIRECTOR.hpMul();
-    this.hp = this.maxHp = Math.round(D.hp * hpScale * (type === "boss" ? 1 + level * 0.2 : 1));
+    this.hp = this.maxHp = Math.round(D.hp * hpScale * (D.boss ? 1 + level * 0.15 : 1));
     this.speed = D.speed * (mods.speed || 1) * DIRECTOR.speedMul();
     this.accel = D.accel; this.turn = D.turn;
     this.turretSpd = D.turretSpd;
@@ -444,9 +532,13 @@ class Enemy extends Tank {
     this.prevX = x; this.prevY = y;
     this.spawnT = 0.7;
     this.invuln = 1.1;
+    // guardian shield / stealth cloak
+    if (D.shieldMax) { this.shieldHp = D.shieldMax; this.shieldT = 1e9; this.shieldRegenT = 0; }
+    this.cloakA = D.cloak ? 1 : 1;
+    this.cloakT = 0;
     this.aimAng = this.tAngle = rand(0, TAU);
     // boss
-    if (type === "boss") {
+    if (D.boss) {
       this.attack = null;
       this.attackT = 3.5;
       this.telegraphT = 0;
@@ -454,6 +546,8 @@ class Enemy extends Tank {
       this.chargeDir = 0;
       this.summon66 = false;
       this.summon33 = false;
+      this.attackSet = D.attacks || ["radial", "charge"];
+      this.blinkT = 0;
     }
   }
 
@@ -567,7 +661,8 @@ class Enemy extends Tank {
     this.perceive(dt, w);
     this.runBurst(dt);
     if (!pl || !pl.alive) { this.moveIn.x = 0; this.moveIn.y = 0; return; }
-    if (this.type === "boss") return this.thinkBoss(dt, w);
+    if (this.boss) return this.thinkBoss(dt, w);
+    this.tickTraits(dt, w);
 
     // stuck detection -> force repath
     const moved = dist2(this.x, this.y, this.prevX, this.prevY);
@@ -578,7 +673,7 @@ class Enemy extends Tank {
     this.prevX = this.x; this.prevY = this.y;
 
     // low-morale retreat
-    if (this.hp < this.maxHp * 0.28 && this.state !== "flee" && this.type !== "heavy" && chance(dt * 2)) {
+    if (this.hp < this.maxHp * 0.28 && this.state !== "flee" && this.type !== "heavy" && this.type !== "guardian" && chance(dt * 2)) {
       this.setState("flee");
       if (this.type === "bomber" && this.mineCd <= 0) { layMine(this.x, this.y, this); this.mineCd = 5; }
     }
@@ -657,6 +752,13 @@ class Enemy extends Tank {
         } else {
           this.tryFire(w, d);
         }
+        // scouts finish with a ramming charge
+        if (this.def.ram && d < this.radius + pl.radius + 8) {
+          pl.damage(this.def.ram, this.x, this.y, this);
+          pl.vel.x += (pl.x - this.x) * 3; pl.vel.y += (pl.y - this.y) * 3;
+          this.damage(this.maxHp * 0.5, this.x, this.y, null);
+          fxSparkBurst(this.x, this.y, 10, this.style.accent);
+        }
         // bombers drop mines in the player's path
         if (this.type === "bomber" && this.mineCd <= 0 && d < 260) {
           layMine(this.x, this.y, this);
@@ -684,10 +786,35 @@ class Enemy extends Tank {
     }
   }
 
+  /* ---- per-type traits: guardian shield regen, stealth cloak ---- */
+  tickTraits(dt, w){
+    const D = this.def;
+    if (D.shieldMax) {
+      // shield rebuilds only while out of contact
+      this.shieldT = 1e9;
+      this.shieldRegenT = this.canSee ? 2.2 : Math.max(0, (this.shieldRegenT || 0) - dt);
+      if (this.shieldRegenT <= 0 && this.shieldHp < D.shieldMax) {
+        this.shieldHp = Math.min(D.shieldMax, this.shieldHp + D.shieldRegen * dt);
+      }
+    }
+    if (D.cloak) {
+      // fades out while repositioning, snaps visible just before firing
+      const want = (this.reloadT > this.reload * 0.45 && !this.canSee) ? 0.18 : (this.canSee ? 0.85 : 0.35);
+      this.cloakA = expLerp(this.cloakA === undefined ? 1 : this.cloakA, want, 3, dt);
+      this.cloakT -= dt;
+      if (this.cloakT <= 0 && this.cloakA < 0.4) {
+        this.cloakT = rand(0.3, 0.7);
+        PARTS.spawn({ x: this.x + rand(-10, 10), y: this.y + rand(-10, 10), type: "trail",
+          size: 4, size2: 0.5, life: 0.35, color: this.style.accent, layer: 1 });
+      }
+    }
+  }
+
   /* ---- boss: phase attacks ---- */
   thinkBoss(dt, w){
     const pl = w.player;
     const d = dist(this.x, this.y, pl.x, pl.y);
+    const self = this;
     // phase summons
     if (!this.summon66 && this.hp < this.maxHp * 0.66) { this.summon66 = true; GAME.bossSummon(2); }
     if (!this.summon33 && this.hp < this.maxHp * 0.33) { this.summon33 = true; GAME.bossSummon(3); }
@@ -709,6 +836,71 @@ class Enemy extends Tank {
         CAM.addShake(0.4);
         this.attack = null;
         this.attackT = rand(4, 6);
+      }
+      return;
+    }
+    if (this.attack === "shockwave") {
+      this.telegraphT -= dt;
+      this.moveIn.x = 0; this.moveIn.y = 0;
+      if ((this.telegraphT * 12 | 0) % 2 === 0)
+        fxRing(this.x, this.y, this.radius + 20 + (1 - this.telegraphT) * 40, "#ffc24d", 0.16);
+      if (this.telegraphT <= 0) {
+        // ground slam: heavy close damage plus a wall-levelling ring
+        explode(this.x, this.y, { radius: 210, dmg: 46, owner: this });
+        for (let k = 0; k < 8; k++) {
+          const a2 = (k / 8) * TAU;
+          setTimeoutSafe(() => explode(this.x + Math.cos(a2) * 150, this.y + Math.sin(a2) * 150,
+            { radius: 96, dmg: 26, owner: this }), 90);
+        }
+        CAM.addShake(0.7);
+        this.attack = null;
+        this.attackT = rand(5, 7);
+      }
+      return;
+    }
+    if (this.attack === "barrage") {
+      this.telegraphT -= dt;
+      this.moveIn.x *= 0.2; this.moveIn.y *= 0.2;
+      this.aimAng = Math.atan2(pl.y - this.y, pl.x - this.x);
+      if (this.telegraphT <= 0) {
+        // walking mortar salvo that lands around the player
+        for (let k = 0; k < 5; k++) {
+          const ox = rand(-110, 110), oy = rand(-110, 110);
+          setTimeoutSafe(() => {
+            const tx = pl.x + ox, ty = pl.y + oy;
+            fxRing(tx, ty, 60, "#ffa8d8", 0.5);
+            setTimeoutSafe(() => explode(tx, ty, { radius: 104, dmg: 34, owner: this }), 600);
+          }, k * 220);
+        }
+        AUDIO.heavyShoot();
+        this.attack = null;
+        this.attackT = rand(5.5, 7.5);
+      }
+      return;
+    }
+    if (this.attack === "blink") {
+      this.telegraphT -= dt;
+      this.moveIn.x = 0; this.moveIn.y = 0;
+      this.cloakA = expLerp(this.cloakA, 0.12, 8, dt);
+      if (this.telegraphT <= 0) {
+        // teleport to a free cell flanking the player
+        let best = null;
+        for (let i = 0; i < 24; i++) {
+          const a2 = rand(0, TAU), r2 = rand(130, 260);
+          const x = pl.x + Math.cos(a2) * r2, y = pl.y + Math.sin(a2) * r2;
+          const cell = w.map.cellOf(x, y);
+          if (w.map.get(cell.c, cell.r) === 0) { best = { x, y }; break; }
+        }
+        if (best) {
+          fxSpawnPortal(this.x, this.y, this.style.accent);
+          this.x = best.x; this.y = best.y;
+          this.vel.x = this.vel.y = 0;
+          fxSpawnPortal(this.x, this.y, this.style.accent);
+          AUDIO.emp();
+        }
+        this.cloakA = 1;
+        this.attack = null;
+        this.attackT = rand(3.5, 5);
       }
       return;
     }
@@ -768,11 +960,13 @@ class Enemy extends Tank {
     // schedule attacks
     this.attackT -= dt;
     if (this.attackT <= 0) {
-      if (this.canSee && d < 420 && chance(0.55)) {
-        this.attack = "charge"; this.telegraphT = 0.8; AUDIO.bossAlert();
-      } else {
-        this.attack = "radial"; this.telegraphT = 0.9;
-      }
+      const set = this.attackSet;
+      // prefer the close-range option when the player is near enough
+      let choice = pick(set);
+      if ((choice === "charge" || choice === "shockwave") && d > 460) choice = "radial";
+      this.attack = choice;
+      this.telegraphT = choice === "charge" ? 0.8 : (choice === "blink" ? 0.45 : 0.9);
+      if (choice === "charge" || choice === "shockwave") AUDIO.bossAlert();
     }
   }
 
@@ -780,7 +974,11 @@ class Enemy extends Tank {
     GAME.onEnemyDead(this, src);
   }
   draw(c, time){
+    // stealth units fade out; never fully invisible so they stay fair
+    const cl = this.def.cloak ? clamp(this.cloakA, 0.12, 1) : 1;
+    if (cl < 1) c.globalAlpha = cl;
     super.draw(c, time);
+    c.globalAlpha = 1;
     if (!this.alive) return;
     // sniper laser telegraph
     if (this.lockT >= 0 && this.lockPt) {
@@ -800,7 +998,7 @@ class Enemy extends Tank {
     }
     // health bar
     if (this.hp < this.maxHp && this.spawnT <= 0) {
-      const w = this.type === "boss" ? 56 : 30;
+      const w = this.boss ? 56 : 30;
       const y = this.y - this.radius - 12;
       c.fillStyle = "rgba(0,0,0,0.55)";
       c.fillRect(this.x - w / 2, y, w, 4.5);

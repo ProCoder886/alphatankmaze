@@ -35,11 +35,13 @@
       <div class="subtitle">Adaptive AI &bull; Destructible arenas &bull; Zero mercy</div>
       <div class="menu-buttons">
         <button class="btn primary" data-act="play">&#9654;&nbsp; Deploy</button>
+        <button class="btn" data-act="modes">Operation Type</button>
         <button class="btn" data-act="how">Field Manual</button>
         <button class="btn" data-act="settings">Systems Config</button>
         <button class="btn" data-act="records">Service Record</button>
       </div>
       <div class="best" id="main-best">BEST SCORE — 0</div>
+      <div class="mode-line" id="main-mode">OPERATION — CAMPAIGN</div>
       <!-- CrazyGames username, shown only when the player is signed in.
            No in-game login flow and no external login options. -->
       <div class="operator" id="cg-operator"></div>
@@ -48,6 +50,16 @@
       <!-- In-game banner: static screen only, never during gameplay -->
       <div class="cg-banner" id="banner-menu"></div>
       <div class="foot">v1.0 &bull; procedural audio &bull; no external assets</div>
+    </div>
+  </div>
+
+  <!-- ============ OPERATION TYPE (GAME MODES) ============ -->
+  <div class="screen" id="scr-modes">
+    <div class="panel">
+      <h2 class="scr-h">Operation Type</h2>
+      <div class="scr-sub">Pick how you want to fight</div>
+      <div class="mode-list" id="mode-list"></div>
+      <div class="btn-row"><button class="btn" data-act="back-main">Return</button></div>
     </div>
   </div>
 
@@ -69,13 +81,38 @@
         <div class="k">Left stick / left thumb</div><div class="v">Drive</div>
         <div class="k">Right stick / right thumb</div><div class="v">Aim + auto-fire</div>
         <div class="k">A / RT &nbsp;&bull;&nbsp; X</div><div class="v">Fire &bull; Bomb</div>
+        <div class="k">D-pad &bull; B &bull; Y &bull; R3</div><div class="v">Superpowers 1&ndash;7</div>
+        <div class="k">Tap a power circle</div><div class="v">Fire that superpower (touch)</div>
+        <div class="intel-h">Superpowers — keys 1 to 7</div>
+        <div class="k" style="color:#ff9a3c">1 &nbsp; BOOSTER BOMB</div><div class="v">Ring of charges around your tank.</div>
+        <div class="k" style="color:#7ef0ff">2 &nbsp; FREEZE STRIKE</div><div class="v">Flash-freezes every hostile in range.</div>
+        <div class="k" style="color:#ffd05c">3 &nbsp; EXPLOSIVE SHOTS</div><div class="v">Your shells detonate on impact for 12s.</div>
+        <div class="k" style="color:#ff7a45">4 &nbsp; HOMING MISSILE</div><div class="v">Seeks the nearest hostile on its own.</div>
+        <div class="k" style="color:#c98aff">5 &nbsp; TIME BOMB</div><div class="v">Long fuse, very large blast radius.</div>
+        <div class="k" style="color:#ff4d5e">6 &nbsp; ATOMIC STRIKE</div><div class="v">Calls a strike down on your aim point.</div>
+        <div class="k" style="color:#7be27a">7 &nbsp; GUARDIAN DRONE</div><div class="v">Escort drone fights beside you for 16s.</div>
+        <div class="tipline">Charges are earned by fighting — kill streaks, cleared waves and cleared
+        sectors all restock them. The rack in the top-right corner shows every power, its key, its
+        remaining charges and its cooldown.</div>
         <div class="intel-h">Hostile Intel</div>
         <div class="k" style="color:#e07a6a">GRUNT</div><div class="v">Standard patrol unit. Slow aim.</div>
         <div class="k" style="color:#ff9d5c">HUNTER</div><div class="v">Fast. Burst fire. Leads your movement.</div>
         <div class="k" style="color:#7ef0ff">SNIPER</div><div class="v">Laser lock-on. Break line of sight.</div>
         <div class="k" style="color:#ffd05c">BOMBER</div><div class="v">Breaches walls. Seeds minefields.</div>
         <div class="k" style="color:#c98aff">HEAVY</div><div class="v">Armored twin cannon. Kite it.</div>
+        <div class="k" style="color:#b6ff7a">SCOUT</div><div class="v">Very fast. Closes in and rams.</div>
+        <div class="k" style="color:#ffa8d8">ARTILLERY</div><div class="v">Long-range splash. Break its sightline.</div>
+        <div class="k" style="color:#9ad8ff">GUARDIAN</div><div class="v">Regenerating shield. Keep the pressure on.</div>
+        <div class="k" style="color:#d0b0ff">STEALTH</div><div class="v">Cloaks between shots. Watch the shimmer.</div>
         <div class="k" style="color:#ff4d5e">COMMAND UNIT</div><div class="v">Boss. Radial bursts &amp; ramming charge.</div>
+        <div class="k" style="color:#ffc24d">TITAN WALKER</div><div class="v">Boss. Ground-slam shockwaves.</div>
+        <div class="k" style="color:#ffa8d8">SIEGE PLATFORM</div><div class="v">Boss. Walking mortar barrage.</div>
+        <div class="k" style="color:#c9a0ff">PHANTOM</div><div class="v">Boss. Cloaks and blinks behind you.</div>
+        <div class="intel-h">Arenas</div>
+        <div class="tipline">Sectors rotate through <b>twelve locations</b> and eight arena shapes —
+        grid, diamond, rotunda, wedge, pentagon, hexagon, octagon and crossroad. Alongside brick you
+        will meet <b>reinforced stone</b> (tougher, needs a real blast) and <b>watchtowers</b>, which
+        never fall and block line of sight.</div>
         <div class="intel-h">Doctrine</div>
         <div class="tipline"><b>Brick walls break</b> — steel walls ricochet your shells (1 bounce). Use bounces around corners.
         <b>Bombs</b> excavate brick and chain-detonate barrels and mines. Kills within 4s build a <b>combo multiplier</b> up to &times;6.
@@ -208,6 +245,7 @@
 <script src="js/effects.js"></script>
 <script src="js/worldgen.js"></script>
 <script src="js/combat.js"></script>
+<script src="js/powers.js"></script>
 <script src="js/tanks.js"></script>
 <script src="js/game.js"></script>
 <script src="js/main.js"></script>

@@ -19,6 +19,10 @@ const INPUT = {
     aim:  { id: -1, sx: 0, sy: 0, x: 0, y: 0 },
     bombTapT: 0,
   },
+  /* Powers tapped on the canvas HUD rack this frame (touch), and the
+     gamepad edge-detect table for the same powers. */
+  powerTaps: new Set(),
+  padPowerPrev: [],
   /* Pointer lock keeps the aim cursor confined to the game frame so a
      player outside fullscreen can never click the page behind the game
      (CrazyGames mouse-control requirement for mouse-aimed top-view
@@ -87,6 +91,9 @@ const INPUT = {
       this.usingTouch = true;
       for (const t of e.changedTouches) {
         const p = touchXY(t);
+        // HUD power buttons win over the aim/move sticks so a tap on the
+        // rack never also swings the turret.
+        if (this._hitPower(p.x, p.y)) continue;
         if (p.x < window.innerWidth / 2 && this.touch.move.id === -1) {
           this.touch.move = { id: t.identifier, sx: p.x, sy: p.y, x: p.x, y: p.y };
         } else if (this.touch.aim.id === -1) {
@@ -168,6 +175,15 @@ const INPUT = {
     this.pad.bomb = bombNow && !this.pad.bombPrev;
     this.pad.bombPrev = bombNow;
     this.pad.boost = (gp.buttons[4] && gp.buttons[4].pressed) || (gp.buttons[6] && gp.buttons[6].value > 0.3);
+    // D-pad and shoulder combos map to the first powers so a pad user
+    // can reach them without a keyboard.
+    const POWER_BTNS = [12, 13, 14, 15, 1, 3, 10];   // up,down,left,right,B,Y,R3
+    for (let i = 0; i < POWER_BTNS.length; i++) {
+      const b = gp.buttons[POWER_BTNS[i]];
+      const now = !!(b && b.pressed);
+      if (now && !this.padPowerPrev[i] && POWERS.DEFS[i]) this.powerTaps.add(POWERS.DEFS[i].id);
+      this.padPowerPrev[i] = now;
+    }
     const pauseNow = gp.buttons[9] && gp.buttons[9].pressed;
     this.pad.pauseHit = pauseNow && !this.pad.pausePrev;
     this.pad.pausePrev = pauseNow;
@@ -176,7 +192,22 @@ const INPUT = {
 
   isDown(code){ return this.keys.has(code); },
   wasPressed(code){ return this.pressed.has(code); },
-  endFrame(){ this.pressed.clear(); if (this.touch.bombTapT > 0) this.touch.bombTapT = 0; },
+  endFrame(){
+    this.pressed.clear();
+    this.powerTaps.clear();
+    if (this.touch.bombTapT > 0) this.touch.bombTapT = 0;
+  },
+
+  /* --- superpower activation sources --- */
+  /* Returns true when the tap landed on a HUD power circle. */
+  _hitPower(x, y){
+    if (GAME.state !== "playing") return false;
+    for (const b of POWERS.rack) {
+      if (dist2(x, y, b.x, b.y) <= b.r * b.r) { this.powerTaps.add(b.id); return true; }
+    }
+    return false;
+  },
+  powerTapped(id){ return this.powerTaps.has(id); },
 
   moveAxis(){
     let x = 0, y = 0;

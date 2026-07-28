@@ -36,10 +36,12 @@ const DIRECTOR = {
   },
   compose(level, budget){
     const unlocked = ["grunt"];
-    if (level >= 1) unlocked.push("hunter");
+    if (level >= 1) unlocked.push("hunter", "scout");
     if (level >= 2) unlocked.push("bomber");
     if (level >= 3) unlocked.push("sniper");
-    if (level >= 4) unlocked.push("heavy");
+    if (level >= 4) unlocked.push("heavy", "stealth");
+    if (level >= 5) unlocked.push("artillery");
+    if (level >= 6) unlocked.push("guardian");
     const out = [];
     let guard = 0;
     while (budget > 0 && out.length < 12 && guard++ < 60) {
@@ -59,6 +61,9 @@ const DIRECTOR = {
     { id: "elite",   label: "ELITE UNITS",     apply: { aim: 0.6, score: 1.5 } },
     { id: "blackout",label: "BLACKOUT",        apply: {}, ambient: 0.28 },
     { id: "bombrush",label: "BOMB RUSH",       apply: {}, force: ["bomber", "bomber", "bomber", "grunt", "grunt"] },
+    { id: "swarm",   label: "SCOUT SWARM",     apply: { speed: 1.1 }, force: ["scout", "scout", "scout", "scout", "scout", "scout"] },
+    { id: "siegeline",label: "SIEGE LINE",     apply: { hp: 1.2 }, force: ["artillery", "artillery", "guardian", "grunt"] },
+    { id: "ghosts",  label: "GHOST PROTOCOL",  apply: { aim: 0.8 }, force: ["stealth", "stealth", "stealth", "hunter"] },
   ],
   rollModifier(level, wave){
     if (wave < 2 || level < 2) return null;
@@ -74,6 +79,7 @@ const WORLD = {
   map: null, theme: THEMES[0], floorCv: null,
   player: null,
   enemies: [], shells: [], mines: [], bombs: [], barrels: [], pickups: [],
+  missiles: [], drones: [], strikes: [],   // superpower objects
   weatherAcc: 0,
 
   reset(levelData){
@@ -82,6 +88,7 @@ const WORLD = {
     this.floorCv = levelData.floorCv;
     this.enemies = []; this.shells = []; this.mines = [];
     this.bombs = []; this.pickups = [];
+    this.missiles = []; this.drones = []; this.strikes = [];
     this.barrels = levelData.barrels.map(makeBarrel);
     PARTS.pool.length = 0;
     LIGHTS.flashes.length = 0;
@@ -123,6 +130,10 @@ const WORLD = {
     updateMines(dt);
     updateBarrels(dt);
     updatePickups(dt);
+    updateMissiles(dt);
+    updateDrones(dt);
+    updateStrikes(dt);
+    POWERS.update(dt);
     updateTimers(dt);
     PARTS.update(dt);
     this.updateWeather(dt);
@@ -141,7 +152,7 @@ const WORLD = {
     let near = 0;
     let boss = false;
     for (const e of this.enemies) {
-      if (e.type === "boss") boss = true;
+      if (e.boss) boss = true;
       if (this.player && dist2(e.x, e.y, this.player.x, this.player.y) < 420 * 420) near++;
     }
     AUDIO.setIntensity(clamp(0.22 + this.enemies.length * 0.045 + near * 0.11 + (boss ? 0.35 : 0), 0, 1));
@@ -245,10 +256,34 @@ const MINI = {
     };
     for (const b of WORLD.barrels) dot(b.x, b.y, "rgba(255,150,80,0.7)", 1.6);
     for (const p of WORLD.pickups) dot(p.x, p.y, "#ffe27a", 2);
-    for (const e of WORLD.enemies) dot(e.x, e.y, e.type === "boss" ? "#ff4d5e" : "#ff7a45", e.type === "boss" ? 4 : 2.4);
+    for (const e of WORLD.enemies) dot(e.x, e.y, e.boss ? "#ff4d5e" : "#ff7a45", e.boss ? 4 : 2.4);
     if (WORLD.player && WORLD.player.alive) dot(WORLD.player.x, WORLD.player.y, "#46e0d8", 3);
   },
 };
+
+/* ================================================================
+   GAME MODES
+   Each mode reshapes the same core loop: how sectors advance, whether
+   bosses appear, whether there is a clock, and whether failure ends
+   the run. Everything else (AI director, powers, rewards) is shared.
+   ================================================================ */
+const MODES = {
+  campaign:   { id: "campaign",   name: "CAMPAIGN",     sub: "Sector by sector · bosses every third",
+                bosses: true,  advance: true },
+  survival:   { id: "survival",   name: "SURVIVAL",     sub: "One arena · endless waves",
+                bosses: true,  advance: false, survival: true },
+  timeattack: { id: "timeattack", name: "TIME ATTACK",  sub: "Highest score in three minutes",
+                bosses: false, advance: true,  timeLimit: 180 },
+  quick:      { id: "quick",      name: "QUICK BATTLE", sub: "A single three-wave skirmish",
+                bosses: false, advance: false, single: true },
+  freerun:    { id: "freerun",    name: "FREE RUN",     sub: "No hostiles · learn the arenas",
+                bosses: false, advance: true,  noEnemies: true, noFail: true },
+  endless:    { id: "endless",    name: "ENDLESS RUN",  sub: "Sectors forever · rising pressure",
+                bosses: true,  advance: true,  endless: true },
+  training:   { id: "training",   name: "TRAINING",     sub: "Safe practice with every power",
+                bosses: false, advance: true,  invuln: true, allPowers: true, noFail: true },
+};
+const MODE_ORDER = ["campaign", "survival", "timeattack", "quick", "endless", "freerun", "training"];
 
 /* ================================================================
    SECTION 12 — GAME STATE MACHINE, WAVES, SCORING, HINTS
@@ -268,16 +303,25 @@ const GAME = {
   timescale: 1, slowmoT: 0, freeze: 0,
   deathRealT: -1,
   settingsReturn: "scr-main",
+  mode: "campaign",
+  timeLeft: 0,          // Time Attack clock
+  finished: false,      // run ended by completing it, not by dying
+  barrelsLeft: 0,       // Free Run objective
   /* --- CrazyGames reward state --- */
   revivesUsed: 0,        // rewarded revive: once per run
   pendingLoadout: null,  // claimed supply drop, applied on next deploy
   bonusClaimed: false,   // clearance bonus already doubled this sector
   lastClearBonus: 0,     // the bonus a "double" reward can match
 
+  def(){ return MODES[this.mode] || MODES.campaign; },
   resetStats(){
-    this.stats = { shots: 0, hits: 0, kills: 0, bombs: 0, damageTaken: 0, pickups: 0, time: 0, bricks: 0 };
+    this.stats = { shots: 0, hits: 0, kills: 0, bombs: 0, damageTaken: 0, pickups: 0, time: 0, bricks: 0, powers: 0 };
   },
-  startRun(){
+  startRun(modeId){
+    if (modeId && MODES[modeId]) this.mode = modeId;
+    const M = this.def();
+    this.finished = false;
+    this.timeLeft = M.timeLimit || 0;
     this.resetStats();
     this.score = 0;
     this.combo = { n: 0, t: 0, best: 0 };
@@ -285,10 +329,13 @@ const GAME = {
     this.timescale = 1; this.slowmoT = 0; this.freeze = 0;
     this.deathRealT = -1;
     this.revivesUsed = 0;          // rewarded revive is once per run
+    POWERS.reset(M.allPowers ? 9 : 0);
+    this.killStreak = 0;
     this.pendingLoadout = this.pendingLoadout || null;
     DIRECTOR.reset();
     this.level = 1;
     this.startLevel(this.level);
+    if (M.invuln) WORLD.player.invuln = 1e9;
     this.applyLoadout();           // consume a claimed supply-drop reward
     this.state = "playing";
     showScreen(null);
@@ -306,32 +353,38 @@ const GAME = {
     const data = genLevel(level);
     WORLD.reset(data);
     this.wave = 0;
-    this.bossLevel = level % 3 === 0;
-    this.wavesTotal = clamp(3 + Math.floor((level - 1) / 2), 3, 5);
-    this.waveState = "prep";
+    const M = this.def();
+    this.bossLevel = !!M.bosses && !M.survival && level % 3 === 0;
+    this.wavesTotal = M.survival ? 9999
+      : (M.single ? 3 : clamp(3 + Math.floor((level - 1) / 2), 3, 5));
+    this.barrelsLeft = WORLD.barrels.length;
+    this.waveState = M.noEnemies ? "explore" : "prep";
     this.prepT = 2.4;
     this.modifier = null;
-    this.showBanner("SECTOR " + level + " — " + data.theme.name, data.theme.sub, 2.6);
+    this.showBanner((this.def().survival ? "ARENA — " : "SECTOR " + level + " — ") + data.theme.name,
+      data.shape.name + " · " + data.theme.sub, 2.6);
     // attach state to any player feedback sent from this sector
-    CG.setContext({ sector: level, theme: data.theme.name, difficulty: SETTINGS.difficulty });
+    CG.setContext({ mode: this.mode, sector: level, shape: data.shape.id, theme: data.theme.name, difficulty: SETTINGS.difficulty });
   },
   startWave(n){
     this.wave = n;
     this.waveStartT = this.stats.time;
     this.modifier = DIRECTOR.rollModifier(this.level, n);
-    const isBossWave = this.bossLevel && n === this.wavesTotal;
+    const M = this.def();
+    const isBossWave = (this.bossLevel && n === this.wavesTotal) ||
+                       (M.survival && M.bosses && n % 5 === 0);
     let comp;
     if (isBossWave) {
-      comp = ["boss", "grunt", "grunt"];
-      this.showBanner("⚠ COMMAND UNIT DETECTED", "Neutralize the boss", 3);
+      comp = [bossTypeForLevel(this.level), "grunt", "grunt"];
+      this.showBanner("⚠ " + (ENEMY_TYPES[bossTypeForLevel(this.level)].title || "BOSS") + " DETECTED", "Neutralize the boss", 3);
       AUDIO.bossAlert();
       CAM.tzoom = 0.88;
       this.hint("boss", "COMMAND UNIT — DODGE THE CHARGE, PUNISH THE SPIN-UP");
     } else {
       comp = (this.modifier && this.modifier.force)
         ? this.modifier.force.slice()
-        : DIRECTOR.compose(this.level, DIRECTOR.budget(this.level, n));
-      this.showBanner("WAVE " + n + " / " + this.wavesTotal,
+        : DIRECTOR.compose(M.survival ? 1 + Math.floor(n / 2) : this.level, DIRECTOR.budget(this.level, n));
+      this.showBanner(M.survival ? "WAVE " + n : "WAVE " + n + " / " + this.wavesTotal,
         this.modifier ? "⚡ " + this.modifier.label : "", 2.2);
       AUDIO.waveFanfare();
     }
@@ -355,6 +408,7 @@ const GAME = {
     return best || map.center(map.cols - 2, map.rows - 2);
   },
   spawnEnemy(type, mods){
+    if (this.def().noEnemies) return;
     const p = this.pickSpawnCell();
     const e = new Enemy(type, p.x, p.y, this.level, mods);
     WORLD.enemies.push(e);
@@ -362,7 +416,7 @@ const GAME = {
     AUDIO.beep(340);
   },
   bossSummon(n){
-    const boss = WORLD.enemies.find(e => e.type === "boss");
+    const boss = WORLD.enemies.find(e => e.boss);
     if (!boss) return;
     this.showBanner("REINFORCEMENTS", "", 1.4);
     for (let i = 0; i < n; i++) {
@@ -387,16 +441,24 @@ const GAME = {
   onEnemyDead(e, src){
     this.stats.kills++;
     DIRECTOR.onPlayerKill();
+    /* Kill reward: every 6th kill in a streak refills a superpower, so
+       powers are earned by playing rather than only bought with ads. */
+    this.killStreak++;
+    if (this.killStreak % 6 === 0) {
+      const p = POWERS.grantRandom(1);
+      if (p) fxText(e.x, e.y - 26, "+1 " + p.label, p.color, 13);
+    }
     this.combo.n++;
     this.combo.t = CFG.COMBO_WINDOW;
     this.combo.best = Math.max(this.combo.best, this.combo.n);
     this.addScore(e.scoreVal, e.x, e.y - 10);
-    this.freeze = Math.max(this.freeze, e.type === "boss" ? 0.15 : 0.034);  // seconds
-    if (e.type === "boss") {
+    this.freeze = Math.max(this.freeze, e.boss ? 0.15 : 0.034);  // seconds
+    if (e.boss) {
       this.slowmo(0.25, 1.1);
       CAM.tzoom = 1;
       CAM.addShake(0.8);
       this.addSalvage(100);
+      POWERS.grantRandom(2);
       CG.happytime();              // platform celebration: boss down
       for (let i = 0; i < 4; i++)
         setTimeoutSafe(() => explode(e.x + rand(-50, 50), e.y + rand(-50, 50), { radius: 80, dmg: 0, breakTiles: true }), i * 140);
@@ -406,6 +468,15 @@ const GAME = {
     }
   },
   onPlayerDead(){
+    // Training and Free Run never end a run on death: respawn in place
+    if (this.def().noFail) {
+      const pl = WORLD.player;
+      pl.alive = true; pl.hp = pl.maxHp; pl.invuln = this.def().invuln ? 1e9 : 3;
+      pl.shieldHp = 0; pl.shieldT = 0;
+      fxSpawnPortal(pl.x, pl.y, "#8ffff6");
+      this.showBanner("SYSTEMS RESTORED", "No failure in this mode", 1.8);
+      return;
+    }
     this.waveState = "dead";
     this.slowmo(0.3, 1.4);
     this.deathRealT = 1.8;
@@ -435,8 +506,9 @@ const GAME = {
     pl.shieldHp = 45; pl.shieldT = 12;
     pl.bombs = Math.min(pl.maxBombs, pl.bombs + 3);
     pl.rapidT = 15;
+    POWERS.grantAll(1);
     this.pendingLoadout = null;
-    this.showBanner("SUPPLY DROP RECEIVED", "Shield · +3 bombs · rapid fire", 2.2);
+    this.showBanner("SUPPLY DROP RECEIVED", "Shield · +3 bombs · all powers +1", 2.2);
     fxPickupSparkle(pl.x, pl.y, "#8ffff6");
   },
   /* Revive: rebuild the player in place, keeping score and sector. */
@@ -483,6 +555,13 @@ const GAME = {
   update(dt){
     this.stats.time += dt;
     this.banner.t += dt;
+    const M = this.def();
+    // Time Attack clock — the run ends when it expires, not on death
+    if (M.timeLimit) {
+      this.timeLeft -= dt;
+      if (this.timeLeft <= 3.2 && this.timeLeft + dt > 3.2) AUDIO.bossAlert();
+      if (this.timeLeft <= 0) { this.timeLeft = 0; this.runComplete("TIME EXPIRED"); return; }
+    }
     if (this.hintMsg.t > 0) this.hintMsg.t -= dt;
     if (this.combo.t > 0) { this.combo.t -= dt; if (this.combo.t <= 0) this.combo.n = 0; }
 
@@ -490,11 +569,31 @@ const GAME = {
     if (this.level === 1) {
       if (this.stats.time > 7 && this.stats.bombs === 0) this.hint("bomb", "SPACE — BOMBS EXCAVATE BRICK WALLS & CHAIN BARRELS");
       if (this.stats.time > 16) this.hint("boost", "HOLD SHIFT — OVERDRIVE BOOST");
+      if (this.stats.time > 26) this.hint("power", INPUT.usingTouch
+        ? "TAP A POWER CIRCLE (TOP RIGHT) TO FIRE A SUPERPOWER"
+        : "KEYS 1-7 — SUPERPOWERS (SEE THE RACK, TOP RIGHT)");
     }
     if (WORLD.player && WORLD.player.alive && WORLD.player.hp < 32)
       this.hint("lowhp", "CRITICAL DAMAGE — HOSTILES DROP REPAIR KITS");
 
     switch (this.waveState) {
+      /* Free Run has no hostiles: the objective is to level every
+         barrel in the arena, then the next sector opens. */
+      case "explore": {
+        const left = WORLD.barrels.length;
+        if (left !== this.barrelsLeft) {
+          this.barrelsLeft = left;
+          this.showBanner(left ? left + " TARGETS LEFT" : "ARENA CLEARED", "", 1.1);
+        }
+        if (left === 0) {
+          this.waveState = "done";
+          this.prepT = 1.6;
+          this.lastClearBonus = 300 + this.level * 120;
+          this.score += this.lastClearBonus;
+          AUDIO.waveFanfare();
+        }
+        break;
+      }
       case "prep":
         this.prepT -= dt;
         if (this.prepT <= 0) this.startWave(this.wave + 1);
@@ -513,6 +612,7 @@ const GAME = {
           const fast = (this.stats.time - this.waveStartT) < 26;
           DIRECTOR.onWaveClear(fast);
           this.addScore(200 + this.wave * 60);
+          POWERS.grantRandom(1);            // wave-clear power reward
           if (this.wave >= this.wavesTotal) {
             this.waveState = "done";
             this.prepT = 1.8;
@@ -538,13 +638,17 @@ const GAME = {
   },
 
   levelComplete(){
+    const M = this.def();
+    // A one-sector mode finishes the whole run here instead
+    if (M.single) { this.runComplete("SECTOR SECURED"); return; }
     this.state = "levelend";
     CG.gameplayStop();
     SAVE.data.stats.levels++;
     this.addSalvage(40 + this.level * 10);
+    POWERS.grantRandom(1);         // stage-clear power reward
     // endless game: sector 10 is treated as 100% completion
     const pct = clamp(this.level * 10, 0, 100);
-    if (pct > (SAVE.data.stats.bestPct | 0)) {
+    if (M.advance && pct > (SAVE.data.stats.bestPct | 0)) {
       SAVE.data.stats.bestPct = pct;
       CG.reportProgress(pct);
     }
@@ -561,7 +665,7 @@ const GAME = {
       statRow("Time", padTime(this.stats.time));
     showScreen("scr-level");
     INPUT.setPointerLock(false);
-    renderOffer("offer-level", "bonus");
+    renderOffer("offer-level", this.level % 2 === 0 ? "power" : "bonus");
     AUDIO.setEngine(0);
   },
   /* Advance to the next sector. A midgame ad may run here — a sector
@@ -576,6 +680,7 @@ const GAME = {
     const keepBombs = pl ? Math.max(3, pl.bombs) : 3;
     this.startLevel(this.level);
     WORLD.player.bombs = Math.min(WORLD.player.maxBombs, keepBombs);
+    if (this.def().invuln) WORLD.player.invuln = 1e9;
     this.applyLoadout();
     this.state = "playing";
     showScreen(null);
@@ -583,6 +688,14 @@ const GAME = {
     CG.gameplayStart();
     INPUT.setPointerLock(true);
     AUDIO.startEngine();
+  },
+  /* Ends a run successfully (time up, single sector cleared). Uses the
+     same results screen as a loss, with wording that reflects success. */
+  runComplete(reason){
+    if (this.state === "over") return;
+    this.finished = true;
+    this.finishReason = reason || "OPERATION COMPLETE";
+    this.gameOver();
   },
   gameOver(){
     this.state = "over";
@@ -603,11 +716,25 @@ const GAME = {
     const acc = this.stats.shots ? Math.round(100 * this.stats.hits / this.stats.shots) : 0;
     document.getElementById("go-score").textContent = fmt(this.score);
     document.getElementById("go-record").style.display = isRecord ? "block" : "none";
+    const eyebrow = document.querySelector("#scr-over .eyebrow");
+    const title = document.querySelector("#scr-over .scr-h");
+    if (this.finished) {
+      eyebrow.textContent = "// " + this.finishReason;
+      eyebrow.style.color = "var(--ok)";
+      title.textContent = this.def().name + " Complete";
+    } else {
+      eyebrow.textContent = "// Unit destroyed";
+      eyebrow.style.color = "var(--danger)";
+      title.textContent = "Operation Failed";
+    }
     document.getElementById("go-stats").innerHTML =
-      statRow("Sector reached", this.level) +
+      statRow("Mode", this.def().name) +
+      statRow(this.def().survival ? "Waves survived" : "Sector reached",
+              this.def().survival ? Math.max(0, this.wave - 1) : this.level) +
       statRow("Kills", this.stats.kills) +
       statRow("Accuracy", acc + "%") +
       statRow("Best combo", "x" + Math.max(1, this.combo.best)) +
+      statRow("Powers used", this.stats.powers || 0) +
       statRow("Damage taken", Math.round(this.stats.damageTaken)) +
       statRow("Survived", padTime(this.stats.time));
     if (isRecord) CG.happytime();          // platform celebration: new best

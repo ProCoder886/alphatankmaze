@@ -13,6 +13,7 @@ const CFG = {
   STEP: 1 / 60,        // fixed physics timestep
   MAX_SUBSTEPS: 4,
   BRICK_HP: 3,
+  STONE_HP: 7,        // reinforced stone blocks
   PLAYER_HP: 100,
   BOMB_FUSE: 1.1,
   BOMB_RADIUS: 112,
