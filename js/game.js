@@ -267,6 +267,11 @@ const GAME = {
   timescale: 1, slowmoT: 0, freeze: 0,
   deathRealT: -1,
   settingsReturn: "scr-main",
+  /* --- CrazyGames reward state --- */
+  revivesUsed: 0,        // rewarded revive: once per run
+  pendingLoadout: null,  // claimed supply drop, applied on next deploy
+  bonusClaimed: false,   // clearance bonus already doubled this sector
+  lastClearBonus: 0,     // the bonus a "double" reward can match
 
   resetStats(){
     this.stats = { shots: 0, hits: 0, kills: 0, bombs: 0, damageTaken: 0, pickups: 0, time: 0, bricks: 0 };
@@ -278,11 +283,16 @@ const GAME = {
     this.shownHints = {};
     this.timescale = 1; this.slowmoT = 0; this.freeze = 0;
     this.deathRealT = -1;
+    this.revivesUsed = 0;          // rewarded revive is once per run
+    this.pendingLoadout = this.pendingLoadout || null;
     DIRECTOR.reset();
     this.level = 1;
     this.startLevel(this.level);
+    this.applyLoadout();           // consume a claimed supply-drop reward
     this.state = "playing";
     showScreen(null);
+    CG.clearAllBanners();
+    CG.gameplayStart();
     AUDIO.resume();
     AUDIO.startEngine();
     AUDIO.startMusic();
@@ -300,6 +310,8 @@ const GAME = {
     this.prepT = 2.4;
     this.modifier = null;
     this.showBanner("SECTOR " + level + " — " + data.theme.name, data.theme.sub, 2.6);
+    // attach state to any player feedback sent from this sector
+    CG.setContext({ sector: level, theme: data.theme.name, difficulty: SETTINGS.difficulty });
   },
   startWave(n){
     this.wave = n;
@@ -382,6 +394,8 @@ const GAME = {
       this.slowmo(0.25, 1.1);
       CAM.tzoom = 1;
       CAM.addShake(0.8);
+      this.addSalvage(100);
+      CG.happytime();              // platform celebration: boss down
       for (let i = 0; i < 4; i++)
         setTimeoutSafe(() => explode(e.x + rand(-50, 50), e.y + rand(-50, 50), { radius: 80, dmg: 0, breakTiles: true }), i * 140);
       for (let i = 0; i < 3; i++) spawnPickup(e.x + rand(-40, 40), e.y + rand(-40, 40));
@@ -394,8 +408,60 @@ const GAME = {
     this.slowmo(0.3, 1.4);
     this.deathRealT = 1.8;
     DIRECTOR.onPlayerDeath();
+    CG.gameplayStop();
   },
   slowmo(scale, dur){ this.timescale = scale; this.slowmoT = dur; },
+
+  /* ---- salvage: the non-ad currency for every ad reward ---- */
+  addSalvage(n, x, y){
+    SAVE.data.stats.salvage = Math.max(0, SAVE.data.stats.salvage + n);
+    if (x !== undefined) fxText(x, y, "+" + n + " SALVAGE", "#ffe27a", 13);
+    return SAVE.data.stats.salvage;
+  },
+  salvage(){ return SAVE.data.stats.salvage | 0; },
+  spendSalvage(n){
+    if (this.salvage() < n) return false;
+    SAVE.data.stats.salvage -= n;
+    SAVE.persist();
+    return true;
+  },
+
+  /* ---- reward payloads (identical whether earned by ad or salvage) ---- */
+  applyLoadout(){
+    if (!this.pendingLoadout || !WORLD.player) return;
+    const pl = WORLD.player;
+    pl.shieldHp = 45; pl.shieldT = 12;
+    pl.bombs = Math.min(pl.maxBombs, pl.bombs + 3);
+    pl.rapidT = 15;
+    this.pendingLoadout = null;
+    this.showBanner("SUPPLY DROP RECEIVED", "Shield · +3 bombs · rapid fire", 2.2);
+    fxPickupSparkle(pl.x, pl.y, "#8ffff6");
+  },
+  /* Revive: rebuild the player in place, keeping score and sector. */
+  revivePlayer(){
+    this.revivesUsed++;
+    const data = genLevel(this.level);
+    WORLD.reset(data);
+    const pl = WORLD.player;
+    pl.hp = pl.maxHp;
+    pl.shieldHp = 45; pl.shieldT = 12;
+    pl.bombs = Math.min(pl.maxBombs, pl.bombs + 2);
+    pl.invuln = 2.5;
+    this.waveState = "prep";
+    this.prepT = 2.4;
+    this.wave = Math.max(0, this.wave - 1);   // resume from the wave that killed you
+    this.deathRealT = -1;
+    this.timescale = 1; this.slowmoT = 0; this.freeze = 0;
+    this.combo = { n: 0, t: 0, best: this.combo.best };
+    this.state = "playing";
+    showScreen(null);
+    CG.clearAllBanners();
+    CG.gameplayStart();
+    AUDIO.startEngine();
+    AUDIO.startMusic();
+    this.showBanner("FIELD REPAIR COMPLETE", "Hull restored — shield online", 2.4);
+    fxSpawnPortal(pl.x, pl.y, "#8ffff6");
+  },
 
   hint(id, text){
     if (this.shownHints[id]) return;
@@ -447,8 +513,9 @@ const GAME = {
           if (this.wave >= this.wavesTotal) {
             this.waveState = "done";
             this.prepT = 1.8;
-            this.showBanner("SECTOR SECURED", "+ " + fmt(500 + this.level * 200) + " clearance bonus", 2.2);
-            this.score += 500 + this.level * 200;
+            this.lastClearBonus = 500 + this.level * 200;   // doublable by ad reward
+            this.showBanner("SECTOR SECURED", "+ " + fmt(this.lastClearBonus) + " clearance bonus", 2.2);
+            this.score += this.lastClearBonus;
             AUDIO.waveFanfare();
           } else {
             this.waveState = "prep";
@@ -469,8 +536,17 @@ const GAME = {
 
   levelComplete(){
     this.state = "levelend";
+    CG.gameplayStop();
     SAVE.data.stats.levels++;
+    this.addSalvage(40 + this.level * 10);
+    // endless game: sector 10 is treated as 100% completion
+    const pct = clamp(this.level * 10, 0, 100);
+    if (pct > (SAVE.data.stats.bestPct | 0)) {
+      SAVE.data.stats.bestPct = pct;
+      CG.reportProgress(pct);
+    }
     SAVE.persist();
+    this.bonusClaimed = false;
     const acc = this.stats.shots ? Math.round(100 * this.stats.hits / this.stats.shots) : 0;
     document.getElementById("lc-title").textContent = "Sector " + this.level + " Cleared";
     document.getElementById("lc-stats").innerHTML =
@@ -481,22 +557,32 @@ const GAME = {
       statRow("Bricks razed", this.stats.bricks) +
       statRow("Time", padTime(this.stats.time));
     showScreen("scr-level");
+    renderOffer("offer-level", "bonus");
     AUDIO.setEngine(0);
   },
-  nextLevel(){
+  /* Advance to the next sector. A midgame ad may run here — a sector
+     transition is exactly the "level change" break the SDK asks for.
+     Skipped if a rewarded ad was just watched on this screen, since
+     chaining two ads for one transition is not allowed. */
+  async nextLevel(){
+    if (!this.bonusClaimed) await CG.midgame();
     this.level++;
     // carry-over refit between sectors
     const pl = WORLD.player;
     const keepBombs = pl ? Math.max(3, pl.bombs) : 3;
     this.startLevel(this.level);
     WORLD.player.bombs = Math.min(WORLD.player.maxBombs, keepBombs);
+    this.applyLoadout();
     this.state = "playing";
     showScreen(null);
+    CG.clearAllBanners();
+    CG.gameplayStart();
     AUDIO.startEngine();
   },
   gameOver(){
     this.state = "over";
     this.timescale = 1;
+    CG.gameplayStop();
     AUDIO.setEngine(0);
     // fold run stats into lifetime stats
     const S = SAVE.data.stats;
@@ -519,22 +605,29 @@ const GAME = {
       statRow("Best combo", "x" + Math.max(1, this.combo.best)) +
       statRow("Damage taken", Math.round(this.stats.damageTaken)) +
       statRow("Survived", padTime(this.stats.time));
+    if (isRecord) CG.happytime();          // platform celebration: new best
     showScreen("scr-over");
+    renderOffer("offer-over", "revive");   // "out of lives" rewarded offer
+    CG.showBanner("banner-over");          // static screen, shown >5s
   },
   pause(){
     if (this.state !== "playing") return;
     this.state = "paused";
     showScreen("scr-pause");
+    CG.gameplayStop();
     AUDIO.setEngine(0);
   },
   resume(){
     if (this.state !== "paused") return;
     this.state = "playing";
     showScreen(null);
+    CG.gameplayStart();
     AUDIO.startEngine();
   },
   quitToMenu(){
     this.state = "menu";
+    CG.gameplayStop();
+    CG.clearContext();
     AUDIO.setEngine(0);
     AUDIO.stopMusic();
     showScreen("scr-main");

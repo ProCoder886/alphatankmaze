@@ -5,11 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>ALPHA TANK — MAZE BOMBERS</title>
 <meta name="description" content="Alpha Tank Maze Bombers — AAA-quality HTML5 tactical tank combat. Adaptive AI, destructible mazes, dynamic lighting, procedural audio. Zero dependencies.">
+<!-- CrazyGames HTML5 SDK v3 — must load before the game code -->
+<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="menu-open">
 <canvas id="game"></canvas>
 <div id="crt"></div>
+
+<!-- ============ AD OVERLAY ============
+     Blocks all interaction from the moment an ad is requested until
+     adFinished/adError fires, as required by the CrazyGames SDK. -->
+<div id="ad-overlay" aria-hidden="true">
+  <div class="ad-ov-box">
+    <div class="ad-ov-spinner"></div>
+    <div class="ad-ov-title" id="ad-ov-title">Loading advertisement</div>
+    <div class="ad-ov-sub">Operation paused</div>
+  </div>
+</div>
 
 <div id="ui">
 
@@ -26,7 +39,11 @@
         <button class="btn" data-act="records">Service Record</button>
       </div>
       <div class="best" id="main-best">BEST SCORE — 0</div>
-      <div class="foot">v1.0 &bull; single-file build &bull; procedural audio &bull; no external assets</div>
+      <!-- Optional rewarded-ad offer: pre-deploy supply drop -->
+      <div class="offer" id="offer-main"></div>
+      <!-- In-game banner: static screen only, never during gameplay -->
+      <div class="cg-banner" id="banner-menu"></div>
+      <div class="foot">v1.0 &bull; procedural audio &bull; no external assets</div>
     </div>
   </div>
 
@@ -136,10 +153,14 @@
       <div class="record-flag" id="go-record">&#9733; New Service Record &#9733;</div>
       <div class="big-score" id="go-score">0</div>
       <div class="stat-grid" id="go-stats"></div>
+      <!-- Optional rewarded-ad offer: field repair drone (revive) -->
+      <div class="offer" id="offer-over"></div>
       <div class="btn-row">
-        <button class="btn primary" data-act="retry">Redeploy</button>
+        <button class="btn" data-act="retry">Redeploy</button>
         <button class="btn" data-act="quit">Menu</button>
       </div>
+      <!-- In-game banner: static screen only, never during gameplay -->
+      <div class="cg-banner" id="banner-over"></div>
     </div>
   </div>
 
@@ -149,8 +170,10 @@
       <div class="eyebrow" style="color:var(--ok)">// Sector secured</div>
       <h2 class="scr-h" id="lc-title">Sector 1 Cleared</h2>
       <div class="stat-grid" id="lc-stats"></div>
+      <!-- Optional rewarded-ad offer: double the clearance bonus -->
+      <div class="offer" id="offer-level"></div>
       <div class="btn-row">
-        <button class="btn primary" data-act="next">Advance &nbsp;&#9654;</button>
+        <button class="btn" data-act="next">Advance &nbsp;&#9654;</button>
         <button class="btn" data-act="quit">Menu</button>
       </div>
     </div>
@@ -160,6 +183,7 @@
 
 <!-- ================================================================
      ENGINE SCRIPTS — load order matters (shared top-level globals):
+       0. crazygames.js — CrazyGames SDK v3: ads, banners, data, game events
        1. config.js   — CFG / quality / math utils / seeded RNG / SAVE
        2. audio.js    — procedural Web Audio SFX + adaptive music
        3. input.js    — keyboard / mouse / gamepad / touch
@@ -171,6 +195,7 @@
        9. game.js     — AI Director, WORLD simulation, minimap, game state
       10. main.js     — HUD, render pipeline, UI wiring, main loop, boot
      ================================================================ -->
+<script src="js/crazygames.js"></script>
 <script src="js/config.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/input.js"></script>

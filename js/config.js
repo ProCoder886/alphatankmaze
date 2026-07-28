@@ -91,12 +91,17 @@ const SAVE = {
       v: 1,
       settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "auto", crt: false, fps: false, difficulty: "adaptive" },
       scores: [],
-      stats: { kills: 0, deaths: 0, shots: 0, hits: 0, bombs: 0, levels: 0, bricks: 0, playTime: 0, best: 0, games: 0 },
+      /* salvage = the non-ad currency players can spend on the same
+         bonuses the rewarded ads grant (SDK requires an alternative).
+         bestPct = highest completion % already reported to CrazyGames. */
+      stats: { kills: 0, deaths: 0, shots: 0, hits: 0, bombs: 0, levels: 0, bricks: 0, playTime: 0, best: 0, games: 0, salvage: 0, bestPct: 0 },
     };
   },
   load(){
     try {
-      const raw = localStorage.getItem(this.key);
+      // CG.storage = CrazyGames data module (cross-device) with a
+      // localStorage fallback and automatic migration of old saves.
+      const raw = CG.storage.getItem(this.key);
       const d = this.defaults();
       if (raw) {
         const p = JSON.parse(raw);
@@ -108,7 +113,7 @@ const SAVE = {
     } catch (e) { this.data = this.defaults(); }
   },
   persist(){
-    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+    try { CG.storage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
   addScore(score, level){
     this.data.scores.push({ s: score, l: level, d: Date.now() });

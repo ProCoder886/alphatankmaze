@@ -14,6 +14,10 @@ const AUDIO = {
   engineOsc: null, engineOsc2: null, engineFilter: null, engineGain: null,
   music: { playing: false, step: 0, nextT: 0, intensity: 0.2, timer: null, chord: 0 },
   _lastPing: 0,
+  /* Muted while a CrazyGames video ad plays, or when the platform
+     muteAudio setting is on. Applied at the master bus so it
+     overrides the in-game volume sliders, as the SDK requires. */
+  muted: false,
 
   init(){
     if (this.ctx) return;
@@ -45,6 +49,11 @@ const AUDIO = {
     if (!this.ctx) return;
     this.sfxBus.gain.value = SETTINGS.sfx * SETTINGS.sfx;
     this.musicBus.gain.value = SETTINGS.music * SETTINGS.music * 0.7;
+    this.master.gain.value = this.muted ? 0 : 0.9;
+  },
+  setMuted(m){
+    this.muted = !!m;
+    if (this.master) this.master.gain.value = this.muted ? 0 : 0.9;
   },
   now(){ return this.ctx ? this.ctx.currentTime : 0; },
 

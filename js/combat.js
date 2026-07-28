@@ -399,7 +399,9 @@ function applyPickup(p, player){
       }
       break;
     }
-    case "coin": GAME.addScore(150, p.x, p.y); break;
+    // salvage doubles as the currency that buys the same bonuses the
+    // rewarded ads grant, so ad rewards always have a non-ad path
+    case "coin": GAME.addScore(150, p.x, p.y); GAME.addSalvage(25); break;
   }
   GAME.stats.pickups++;
   AUDIO.pickup();

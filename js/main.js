@@ -292,10 +292,21 @@ function showScreen(id){
     document.body.classList.add("menu-open");
   } else {
     document.body.classList.remove("menu-open");
+    // gameplay resumed: no banners may remain on screen during play
+    CG.clearAllBanners();
   }
+  // Banners are only allowed on static screens that stay up a while.
+  if (id === "scr-main") {
+    renderOffer("offer-main", "supply");
+    CG.showBanner("banner-menu");
+  } else {
+    CG.clearBanner("banner-menu");
+  }
+  if (id !== "scr-over") CG.clearBanner("banner-over");
 }
 function refreshMainBest(){
-  document.getElementById("main-best").textContent = "BEST SCORE — " + fmt(SAVE.data.stats.best);
+  document.getElementById("main-best").textContent =
+    "BEST SCORE — " + fmt(SAVE.data.stats.best) + "   ·   SALVAGE — " + fmt(GAME.salvage());
 }
 function renderRecords(){
   const list = document.getElementById("rec-list");
@@ -315,6 +326,135 @@ function renderRecords(){
     "Lifetime — <b>" + fmt(S.kills) + "</b> kills · <b>" + S.games + "</b> ops · <b>" + fmt(S.bricks) + "</b> bricks razed<br>" +
     "Accuracy <b>" + acc + "%</b> · Bombs <b>" + fmt(S.bombs) + "</b> · Sectors cleared <b>" + S.levels + "</b> · Time in field <b>" + padTime(S.playTime) + "</b>";
 }
+/* ================================================================
+   REWARDED-AD OFFERS (CrazyGames SDK)
+   ----------------------------------------------------------------
+   Every offer follows the platform's rewarded-ad rules:
+     · player-initiated, never on an active gameplay screen
+     · the reward is always optional — the screen's normal Advance /
+       Redeploy / Deploy buttons stay visible and identically styled
+     · a video glyph makes it explicit that an ad will play
+     · an equal-weight salvage alternative buys the same reward, so
+       nothing is ad-gated
+     · a reward is granted ONLY on the adFinished callback
+     · offers are hidden or disabled (with the reason shown) while on
+       cooldown, when an adblocker is active, or off-platform
+   ================================================================ */
+const REWARDS = {
+  supply: {
+    eyebrow: "Optional bonus — Pre-deployment supply drop",
+    desc: () => "Deploy with a <b>shield</b>, <b>+3 bombs</b> and <b>15s rapid fire</b>.",
+    label: "Supply Drop",
+    cost: 75,
+    avail: () => !GAME.pendingLoadout,
+    grant(){ GAME.pendingLoadout = true; },
+    done: "Supply drop secured — it deploys with you.",
+  },
+  bonus: {
+    eyebrow: "Optional bonus — Clearance payout",
+    desc: () => "Double this sector's <b>" + fmt(GAME.lastClearBonus || 0) + " pt</b> clearance bonus.",
+    label: "Double Bonus",
+    cost: 100,
+    avail: () => !GAME.bonusClaimed && (GAME.lastClearBonus || 0) > 0,
+    grant(){
+      GAME.bonusClaimed = true;
+      GAME.score += GAME.lastClearBonus;
+      document.getElementById("lc-stats").innerHTML =
+        document.getElementById("lc-stats").innerHTML.replace(
+          /(<div class="sk">Score<\/div><div class="sv">)[^<]*/,
+          "$1" + fmt(GAME.score));
+    },
+    done: "Clearance bonus doubled.",
+  },
+  revive: {
+    eyebrow: "Optional bonus — Field repair drone",
+    desc: () => "Redeploy in <b>Sector " + GAME.level + "</b> with full hull, shield and +2 bombs. <b>Score kept.</b>",
+    label: "Revive",
+    cost: 150,
+    avail: () => (GAME.revivesUsed || 0) < 1,
+    grant(){ GAME.revivePlayer(); },
+    done: "Field repair inbound…",
+  },
+};
+let _offerTimer = null;
+
+function renderOffer(containerId, rewardId){
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const R = REWARDS[rewardId];
+  clearInterval(_offerTimer); _offerTimer = null;
+  if (!R || !R.avail()) { el.classList.remove("on"); el.innerHTML = ""; return; }
+
+  const blocked = CG.rewardBlockedReason();
+  const salvage = GAME.salvage();
+  const canBuy = salvage >= R.cost;
+  // Off-platform the ad simply does not exist — never show a dead button.
+  const showAdBtn = CG.available;
+
+  el.classList.add("on");
+  el.innerHTML =
+    '<div class="offer-h">' + R.eyebrow + "</div>" +
+    '<div class="offer-desc">' + R.desc() + "</div>" +
+    '<div class="btn-row">' +
+      (showAdBtn
+        ? '<button class="btn" data-act="rw-ad" data-rw="' + rewardId + '" data-cont="' + containerId + '"' +
+          (blocked ? " disabled" : "") + '>' +
+          '<span class="ad-ic">&#9654;</span>Watch Ad — ' + R.label + "</button>"
+        : "") +
+      '<button class="btn" data-act="rw-buy" data-rw="' + rewardId + '" data-cont="' + containerId + '"' +
+        (canBuy ? "" : " disabled") + ">" + R.label + " — " + R.cost + " Salvage</button>" +
+    "</div>" +
+    '<div class="offer-note' + (blocked ? " blocked" : "") + '">' +
+      (blocked ? blocked + "<br>" : "") +
+      "Salvage: <b>" + fmt(salvage) + "</b> · earned from salvage crates and cleared sectors." +
+    "</div>";
+
+  // live-refresh the cooldown countdown while the offer is on screen
+  if (blocked && CG.rewardCooldownLeft() > 0) {
+    _offerTimer = setInterval(() => {
+      if (!document.body.contains(el) || !el.classList.contains("on")) {
+        clearInterval(_offerTimer); _offerTimer = null; return;
+      }
+      renderOffer(containerId, rewardId);
+    }, 1000);
+  }
+}
+
+/* Claim a reward. `viaAd` grants only after a completed rewarded ad. */
+async function claimReward(rewardId, containerId, viaAd){
+  const R = REWARDS[rewardId];
+  if (!R || !R.avail()) return;
+  const el = document.getElementById(containerId);
+
+  if (viaAd) {
+    if (CG.rewardBlockedReason()) return;
+    const ok = await CG.rewarded();
+    if (!ok) {
+      // adError / unfilled / adblock — never reward, always keep playing
+      if (el) {
+        const note = el.querySelector(".offer-note");
+        if (note) {
+          note.classList.add("blocked");
+          note.innerHTML = "No advertisement was available, so no reward was given. " +
+            "You can still use salvage.<br>Salvage: <b>" + fmt(GAME.salvage()) + "</b>";
+        }
+      }
+      return;
+    }
+  } else {
+    if (!GAME.spendSalvage(R.cost)) return;
+  }
+
+  // reward confirmation — the player must clearly see they were rewarded
+  if (el) {
+    el.innerHTML = '<div class="offer-h">Reward granted</div>' +
+      '<div class="offer-desc">' + R.done + "</div>";
+  }
+  AUDIO.pickup();
+  R.grant();
+  SAVE.persist();
+}
+
 function syncSettingsUI(){
   const s = SETTINGS;
   const setRange = (id, v) => {
@@ -335,8 +475,13 @@ function bindUI(){
   document.getElementById("ui").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
+    if (btn.disabled || CG.busy()) return;   // no input while an ad is in flight
     AUDIO.uiClick();
     switch (btn.dataset.act) {
+      /* --- CrazyGames rewarded-ad offers --- */
+      case "rw-ad":  claimReward(btn.dataset.rw, btn.dataset.cont, true); break;
+      case "rw-buy": claimReward(btn.dataset.rw, btn.dataset.cont, false); break;
+
       case "play": GAME.startRun(); break;
       case "how": showScreen("scr-how"); break;
       case "settings":
@@ -352,7 +497,14 @@ function bindUI(){
       case "resume": GAME.resume(); break;
       case "restart": GAME.startRun(); break;
       case "quit": GAME.quitToMenu(); break;
-      case "retry": GAME.startRun(); break;
+      /* Restarting after a death is a map change — the documented
+         moment for a midgame ad. Never chained onto a rewarded ad. */
+      case "retry":
+        (async () => {
+          if (CG.rewardCooldownLeft() === 0) await CG.midgame();
+          GAME.startRun();
+        })();
+        break;
       case "next": GAME.nextLevel(); break;
       case "wipe":
         SAVE.wipe();
@@ -432,6 +584,15 @@ function frame(tms){
   FPSMON.tick(realDt);
   INPUT.pollPad();
 
+  /* An ad is being requested or is playing: the game must not
+     progress and input must not reach it (CrazyGames requirement).
+     Rendering continues so the frozen frame stays behind the overlay. */
+  if (CG.busy()) {
+    render(t);
+    INPUT.endFrame();
+    return;
+  }
+
   // pause toggle
   if (INPUT.pauseHit()) {
     if (GAME.state === "playing") GAME.pause();
@@ -469,16 +630,24 @@ function frame(tms){
   INPUT.endFrame();
 }
 
-window.addEventListener("load", () => {
+window.addEventListener("load", async () => {
   cv = document.getElementById("game");
   ctx = cv.getContext("2d");
+  // Initialise the CrazyGames SDK before anything reads saved data:
+  // the data module preloads the player's cross-device progress.
+  await CG.init();
+  CG.loadingStart();
   SAVE.load();
   SETTINGS = SAVE.data.settings;
+  CG.applyMute();                 // honour the platform muteAudio setting
   resolveQuality();
   syncSettingsUI();
   refreshMainBest();
+  renderOffer("offer-main", "supply");
+  CG.showBanner("banner-menu");
   INPUT.init(cv);
   bindUI();
   window.addEventListener("resize", resize);
+  CG.loadingStop();               // loading complete, menu is interactive
   requestAnimationFrame(frame);
 });

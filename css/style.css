@@ -218,8 +218,103 @@ ol#rec-list li .lv{color:var(--ink-dim);}
 .center{text-align:center;}
 .hr{height:1px;background:var(--edge);margin:16px 0;}
 
+/* ============================================================
+   CRAZYGAMES SDK — rewarded-ad offers, banners, ad overlay
+   Compliance notes (docs.crazygames.com advertisement rules):
+   - The ad button and the no-ad alternative use the SAME .btn
+     geometry, font, letter-spacing and colour. The only visual
+     difference is the video glyph, which is the documented way to
+     signal "you will watch an advertisement".
+   - Neither button is styled as .primary, so the offer never reads
+     as the promoted path and skipping is never visually penalised.
+   - Offers only ever render on paused / end screens, never over
+     live gameplay.
+   ============================================================ */
+.offer{
+  display:none;                       /* shown only when an offer is live */
+  margin:18px 0 4px;padding:14px 16px 16px;
+  border:1px solid var(--edge);
+  background:linear-gradient(165deg, rgba(30,44,58,0.42), rgba(16,24,33,0.5));
+  clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px);
+  text-align:left;
+}
+.offer.on{display:block;}
+.offer-h{
+  font-size:10.5px;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--hostile-hot);margin-bottom:7px;font-weight:700;
+}
+.offer-desc{font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:4px;}
+.offer-desc b{color:var(--friend-hot);font-weight:700;}
+.offer-note{
+  font-size:11.5px;letter-spacing:.06em;color:var(--ink-dim);
+  margin-top:9px;line-height:1.45;font-family:var(--font-num);
+}
+.offer-note.blocked{color:var(--hostile);}
+.offer .btn-row{margin-top:12px;}
+/* Ad button: identical to .btn — only the video glyph differs. */
+.btn .ad-ic{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:17px;height:13px;margin-right:9px;vertical-align:-1px;
+  border:1px solid currentColor;border-radius:2px;
+  font-size:8px;line-height:1;
+}
+.btn[disabled]{opacity:.42;cursor:not-allowed;}
+.btn[disabled]:hover{
+  background:linear-gradient(90deg, rgba(70,224,216,0.06), rgba(70,224,216,0.02) 60%, transparent);
+  border-color:var(--edge);color:var(--ink);
+}
+.salvage-line{
+  font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-dim);font-family:var(--font-num);margin-top:10px;
+}
+.salvage-line b{color:#ffe27a;}
+
+/* ---- in-game banner containers ----
+   Sized to the largest CrazyGames responsive slot that fits the
+   panel; collapsed to zero height until a banner actually fills so
+   they can never displace or block game UI. */
+.cg-banner{
+  width:100%;max-width:728px;height:0;margin:0 auto;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+}
+.cg-banner.has-banner{height:90px;margin:16px auto 4px;}
+@media (max-width:760px){
+  .cg-banner{max-width:320px;}
+  .cg-banner.has-banner{height:50px;}
+}
+
+/* ---- blocking ad overlay ---- */
+#ad-overlay{
+  position:fixed;inset:0;z-index:120;display:none;
+  align-items:center;justify-content:center;
+  background:rgba(4,7,11,0.94);
+  pointer-events:auto;                /* swallows every interaction */
+}
+#ad-overlay.active{display:flex;}
+.ad-ov-box{text-align:center;}
+.ad-ov-spinner{
+  width:34px;height:34px;margin:0 auto 16px;
+  border:2px solid rgba(120,160,180,0.25);
+  border-top-color:var(--friend);
+  border-radius:50%;
+  animation:ad-spin .9s linear infinite;
+}
+@keyframes ad-spin{to{transform:rotate(360deg);}}
+.ad-ov-title{
+  font-size:13px;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--ink);font-weight:700;
+}
+.ad-ov-sub{
+  font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-dim);margin-top:7px;
+}
+@media (prefers-reduced-motion: reduce){
+  .ad-ov-spinner{animation:none;}
+}
+
 @media (max-width:560px){
   .panel{padding:24px 20px;min-width:0;width:94vw;}
   .intel{grid-template-columns:1fr;}
   input[type=range]{width:130px;}
+  .offer .btn-row{flex-direction:column;}
 }
