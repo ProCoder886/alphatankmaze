@@ -23,6 +23,10 @@ const INPUT = {
      gamepad edge-detect table for the same powers. */
   powerTaps: new Set(),
   padPowerPrev: [],
+  /* On-screen canvas buttons for touch (pause). Registered by the HUD
+     each frame and hit-tested before the virtual sticks. */
+  uiButtons: [],
+  uiTaps: new Set(),
   /* Pointer lock keeps the aim cursor confined to the game frame so a
      player outside fullscreen can never click the page behind the game
      (CrazyGames mouse-control requirement for mouse-aimed top-view
@@ -40,6 +44,7 @@ const INPUT = {
       if (e.repeat) return void this._swallow(e);
       this.keys.add(e.code);
       this.pressed.add(e.code);
+      this._desktopUsed();
       AUDIO.resume();
       this._swallow(e);
     });
@@ -66,6 +71,7 @@ const INPUT = {
         this.mouse.x = e.clientX; this.mouse.y = e.clientY;
       }
       this.usingPad = false;
+      this._desktopUsed();
     });
     canvas.addEventListener("mousedown", (e) => {
       AUDIO.resume();
@@ -80,8 +86,13 @@ const INPUT = {
     document.addEventListener("pointerlockerror", () => { this.lock.on = false; });
 
     /* Documented common web fixes: no page scroll from the wheel, and no
-       context menu when right-clicking outside the canvas. */
-    window.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
+       context menu when right-clicking outside the canvas. The menu panel
+       is a legitimate internal scroller, so the wheel still reaches it —
+       only the page itself is pinned. */
+    window.addEventListener("wheel", (e) => {
+      if (e.target && e.target.closest && e.target.closest(".panel")) return;
+      e.preventDefault();
+    }, { passive: false });
     document.addEventListener("contextmenu", (e) => e.preventDefault());
 
     /* touch: left half = move stick, right half = aim/fire stick */
@@ -89,6 +100,7 @@ const INPUT = {
     canvas.addEventListener("touchstart", (e) => {
       AUDIO.resume();
       this.usingTouch = true;
+      this._touchT = performance.now();
       for (const t of e.changedTouches) {
         const p = touchXY(t);
         // HUD power buttons win over the aim/move sticks so a tap on the
@@ -111,6 +123,7 @@ const INPUT = {
       e.preventDefault();
     }, { passive: false });
     const touchEnd = (e) => {
+      this._touchT = performance.now();
       for (const t of e.changedTouches) {
         if (t.identifier === this.touch.move.id) {
           // quick tap on move side = bomb
@@ -127,6 +140,13 @@ const INPUT = {
 
     window.addEventListener("gamepadconnected", (e) => { this.padIndex = e.gamepad.index; });
     window.addEventListener("gamepaddisconnected", () => { this.padIndex = -1; this.usingPad = false; });
+
+    /* Phones and tablets need the touch build of the HUD — on-screen pause,
+       fat power targets, no crosshair, no pointer lock — from the very first
+       frame, not only once a finger has landed on the canvas. Detect the
+       device up front; a hybrid laptop flips back to the desktop HUD the
+       moment a mouse or key is genuinely used. */
+    this.usingTouch = this.touchDevice();
 
     /* iOS suspends/interrupts the AudioContext when the app is
        backgrounded and only allows resuming from a real user gesture. */
@@ -157,6 +177,21 @@ const INPUT = {
   },
   _swallow(e){
     if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.code)) e.preventDefault();
+  },
+
+  /* --- device class ------------------------------------------------ */
+  _touchT: -1e9,
+  touchDevice(){
+    const coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    return coarse && (navigator.maxTouchPoints || 0) > 0;
+  },
+  /* A real mouse move or key press means the desktop HUD is the right one.
+     Touches can emit compatibility mouse events, so ignore anything that
+     lands right after a finger did. */
+  _desktopUsed(){
+    if (!this.usingTouch) return;
+    if (performance.now() - this._touchT < 900) return;
+    this.usingTouch = false;
   },
 
   pollPad(){
@@ -195,6 +230,7 @@ const INPUT = {
   endFrame(){
     this.pressed.clear();
     this.powerTaps.clear();
+    this.uiTaps.clear();
     if (this.touch.bombTapT > 0) this.touch.bombTapT = 0;
   },
 
@@ -202,12 +238,17 @@ const INPUT = {
   /* Returns true when the tap landed on a HUD power circle. */
   _hitPower(x, y){
     if (GAME.state !== "playing") return false;
+    // on-screen buttons first (pause), then the power rack
+    for (const b of this.uiButtons) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { this.uiTaps.add(b.id); return true; }
+    }
     for (const b of POWERS.rack) {
       if (dist2(x, y, b.x, b.y) <= b.r * b.r) { this.powerTaps.add(b.id); return true; }
     }
     return false;
   },
   powerTapped(id){ return this.powerTaps.has(id); },
+  uiTapped(id){ return this.uiTaps.has(id); },
 
   moveAxis(){
     let x = 0, y = 0;
@@ -244,5 +285,5 @@ const INPUT = {
   },
   bombHit(){ return this.wasPressed("Space") || this.pad.bomb || this.touch.bombTapT > 0; },
   boostDown(){ return this.isDown("ShiftLeft") || this.isDown("ShiftRight") || this.pad.boost; },
-  pauseHit(){ return this.wasPressed("Escape") || this.wasPressed("KeyP") || this.pad.pauseHit; },
+  pauseHit(){ return this.wasPressed("Escape") || this.wasPressed("KeyP") || this.pad.pauseHit || this.uiTapped("pause"); },
 };

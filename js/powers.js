@@ -395,11 +395,20 @@ function drawPowerRack(c, time, x1, yTop){
   P.rack.length = 0;
   if (!WORLD.player) return yTop;
 
-  const cols = W < 980 ? 4 : 7;
-  // Touch needs a comfortably large tap target on the rack.
-  const r = Math.round((INPUT.usingTouch ? 17 : 13) * UIS);
-  const gapX = Math.round(r * 2 + 12 * UIS);
-  const gapY = Math.round(r * 2 + 20 * UIS);
+  const touch = INPUT.usingTouch;
+  /* One row whenever it fits. Landscape screens are wide and short, so a
+     single row costs width the game has to spare and saves the height it
+     does not — and it is the same rack a desktop player sees. */
+  const cellW = Math.round((touch ? 20 : 13) * 2 * UIS + 12 * UIS);
+  const cols = (cellW * P.DEFS.length + 10 * UIS) <= W * 0.58 ? P.DEFS.length : 4;
+  /* Touch gets a physically larger disc rather than an invisible pad around
+     a small one: the tap target has to be at least as big as the graphic,
+     and adjacent targets must never overlap or a thumb between two powers
+     fires whichever happens to be first in the list. */
+  const r = Math.round((touch ? 20 : 13) * UIS);
+  const hitR = r + (touch ? 3 : 6) * UIS;
+  const gapX = Math.max(Math.round(r * 2 + 12 * UIS), Math.ceil(hitR * 2) + 2);
+  const gapY = Math.max(Math.round(r * 2 + 20 * UIS), Math.ceil(hitR * 2) + 2);
   const rows = Math.ceil(P.DEFS.length / cols);
   const boxW = gapX * Math.min(cols, P.DEFS.length) + 10 * UIS;
   const boxH = gapY * rows + 14 * UIS;
@@ -418,12 +427,15 @@ function drawPowerRack(c, time, x1, yTop){
   for (let i = 0; i < P.DEFS.length; i++) {
     const p = P.DEFS[i];
     const col = i % cols, row = (i / cols) | 0;
-    const cx = bx + 5 * UIS + gapX * col + gapX / 2;
+    // A short last row is centred so the rack stays symmetric.
+    const inRow = Math.min(cols, P.DEFS.length - row * cols);
+    const rowOff = (cols - inRow) * gapX / 2;
+    const cx = bx + 5 * UIS + rowOff + gapX * col + gapX / 2;
     const cy = by + 7 * UIS + gapY * row + r + 1;
     const n = P.charges[p.id] | 0;
     const cd = P.cds[p.id] || 0;
     const usable = n > 0 && cd <= 0;
-    P.rack.push({ id: p.id, x: cx, y: cy, r: r + (INPUT.usingTouch ? 12 : 6) * UIS });
+    P.rack.push({ id: p.id, x: cx, y: cy, r: hitR });
 
     // dim disc
     c.globalAlpha = usable ? 1 : 0.45;

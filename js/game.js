@@ -317,6 +317,7 @@ const GAME = {
   modifier: null,
   timescale: 1, slowmoT: 0, freeze: 0,
   deathRealT: -1,
+  touchHintT: 0,        // fades the on-screen thumb-zone guide at run start
   settingsReturn: "scr-main",
   mode: "campaign",
   timeLeft: 0,          // Time Attack clock
@@ -361,6 +362,7 @@ const GAME = {
     AUDIO.resume();
     AUDIO.startEngine();
     AUDIO.startMusic();
+    this.touchHintT = INPUT.usingTouch ? 6 : 0;
     this.hint("move", INPUT.usingTouch
       ? "LEFT THUMB DRIVE — RIGHT THUMB AIM & FIRE — TAP LEFT SIDE FOR BOMB"
       : "WASD DRIVE — MOUSE AIM — HOLD LMB FIRE — SPACE BOMB");

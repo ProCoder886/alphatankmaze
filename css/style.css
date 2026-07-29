@@ -556,19 +556,62 @@ body.portrait-block #rotate-gate{display:flex;}
   .cg-banner.has-banner{height:50px;margin:10px auto 2px;}
   .intel{font-size:11.5px;gap:5px 16px;}
   .menu-foot{margin-top:8px;}
+  /* Result screens: a phone in landscape is wide, so the run summary pairs
+     up two stats per row. Without this the Redeploy / Menu buttons — the
+     only things a dead player needs — sit below the fold. */
+  .stat-grid{grid-template-columns:auto auto auto auto;gap:4px 18px;font-size:12.5px;margin:8px 0 4px;}
+  .big-score{font-size:clamp(28px,4.6vw,42px);margin:0;}
+  h2.scr-h{font-size:19px;letter-spacing:.16em;}
+  .scr-sub{margin-bottom:10px;}
+  .record-flag{font-size:10.5px;margin-bottom:5px;}
+  .btn-row{margin-top:10px;}
+  .best{font-size:11.5px;}
 }
-@media (max-height:400px){
+@media (max-height:440px){
   .mode-list{grid-template-columns:repeat(4,1fr);}
-  h1.title{font-size:clamp(22px,4.4vw,30px);}
+  h1.title{font-size:clamp(21px,4.2vw,28px);}
   .mode-sub{display:none;}
+  .panel{padding:9px 16px 9px;max-height:97vh;}
+  .menu-head .eyebrow{display:none;}
+  .deploy-btn{font-size:13px;padding:9px 16px 8px;margin:0 0 8px;}
+  .tabs{margin:0 0 8px;}
+  .offer{margin:9px 0 0;padding:8px 11px 10px;}
+  .offer-h{margin-bottom:4px;}
+  .offer-note{margin-top:6px;font-size:10.5px;}
+  .intel{font-size:11px;gap:4px 14px;}
+  .set-grid{gap:7px 12px;}
+  .big-score{font-size:clamp(24px,3.8vw,34px);}
+  .stat-grid{gap:3px 16px;font-size:12px;margin:6px 0 2px;}
+  h2.scr-h{font-size:17px;margin-bottom:2px;}
 }
-/* Touch devices get roomier tap targets on every menu control. */
-@media (pointer:coarse){
+/* Touch devices get roomier tap targets on every menu control. The extra
+   padding only fits when the screen has the height for it — a phone held
+   sideways is barely 375px tall, so there it stays at the compact size and
+   the tap targets come from the min-height floor below instead. */
+@media (pointer:coarse) and (min-height:521px){
   .btn{padding:14px 20px 13px;}
   .tab{padding:12px 8px;}
   .mode-card{padding:13px 14px;}
   select{padding:10px 12px;font-size:14px;}
+}
+@media (pointer:coarse){
+  /* 40px is the smallest comfortable touch target; every interactive
+     menu control clears it at any viewport height. */
+  .btn,.tab,select,.mode-card{min-height:40px;}
+  .tab{display:flex;align-items:center;justify-content:center;}
+  .mode-card{justify-content:center;}
+  select{font-size:14px;}
   .tog .sw{width:52px;height:26px;}
   .tog .sw::after{width:18px;height:18px;}
   .tog input:checked + .sw::after{left:30px;}
+  /* A 4px track is unusable with a thumb. Keep the line thin but give the
+     slider a 32px-tall drag box by painting the track as a centred
+     background instead of filling the element. */
+  input[type=range]{
+    height:32px;border-radius:0;
+    background:linear-gradient(90deg,var(--friend) var(--fill,60%), rgba(120,160,180,0.25) var(--fill,60%))
+      center / 100% 5px no-repeat;
+  }
+  input[type=range]::-webkit-slider-thumb{width:22px;height:22px;}
+  input[type=range]::-moz-range-thumb{width:20px;height:20px;}
 }

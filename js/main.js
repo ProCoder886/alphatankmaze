@@ -18,7 +18,28 @@ function drawHUD(c, time){
   if (!pl) return;
   c.textBaseline = "alphabetic";
   const pad = Math.round(16 * UIS);
-  const padL = pad + SAFE.l, padR = pad + SAFE.r, padT = pad + SAFE.t;
+  let padL = pad + SAFE.l;
+  const padR = pad + SAFE.r, padT = pad + SAFE.t;
+  /* Touch has no keyboard, so gameplay needs an on-screen pause button.
+     It is registered as a canvas hit box and the left HUD cluster shifts
+     across so the two never overlap. */
+  INPUT.uiButtons.length = 0;
+  if (INPUT.usingTouch) {
+    const bs = Math.round(38 * UIS);
+    const bx = padL, by = padT;
+    INPUT.uiButtons.push({ id: "pause", x: bx, y: by, w: bs, h: bs });
+    c.fillStyle = "rgba(8,12,18,0.6)";
+    c.strokeStyle = "rgba(120,160,180,0.5)";
+    c.lineWidth = 1;
+    c.beginPath();
+    if (c.roundRect) c.roundRect(bx, by, bs, bs, 5); else c.rect(bx, by, bs, bs);
+    c.fill(); c.stroke();
+    c.fillStyle = "#dfe9ee";
+    const pw = Math.round(bs * 0.13), ph = Math.round(bs * 0.4);
+    c.fillRect(bx + bs / 2 - pw * 2, by + (bs - ph) / 2, pw, ph);
+    c.fillRect(bx + bs / 2 + pw, by + (bs - ph) / 2, pw, ph);
+    padL += bs + Math.round(10 * UIS);
+  }
   /* --- left cluster: HP / shield / boost / bombs / buffs ---
      Every offset scales with UIS so labels, bars and icons keep their
      relative spacing at any viewport size. */
@@ -26,7 +47,11 @@ function drawHUD(c, time){
   const barH = Math.round(14 * UIS);
   const rowHp = Math.round(20 * UIS), rowBoost = Math.round(16 * UIS);
   let y = padT;
-  const bw = Math.min(230 * UIS, W * 0.32);
+  /* The bar has to stop short of the centred score column, or on a phone
+     held sideways — where the cluster also carries the pause button — the
+     two run into each other. */
+  const centreClear = W / 2 - 92 * UIS;
+  const bw = clamp(Math.min(230 * UIS, W * 0.32), 84 * UIS, Math.max(84 * UIS, centreClear - padL - LBL));
   c.font = "700 " + FS(11) + "px Bahnschrift, 'Segoe UI', sans-serif";
   c.textAlign = "left";
   c.fillStyle = "rgba(223,233,238,0.75)";
@@ -223,17 +248,40 @@ function drawHUD(c, time){
   }
   /* --- touch sticks --- */
   if (INPUT.usingTouch) {
-    const drawStick = (st) => {
+    const ring = 52 * UIS, knob = 20 * UIS;
+    const drawStick = (st, col) => {
       if (st.id === -1) return;
-      c.strokeStyle = "rgba(143,255,246,0.35)";
-      c.lineWidth = 2;
-      c.beginPath(); c.arc(st.sx, st.sy, 52, 0, TAU); c.stroke();
-      c.fillStyle = "rgba(143,255,246,0.4)";
-      const dx = clamp(st.x - st.sx, -52, 52), dy = clamp(st.y - st.sy, -52, 52);
-      c.beginPath(); c.arc(st.sx + dx, st.sy + dy, 20, 0, TAU); c.fill();
+      c.strokeStyle = "rgba(" + col + ",0.35)";
+      c.lineWidth = 2 * UIS;
+      c.beginPath(); c.arc(st.sx, st.sy, ring, 0, TAU); c.stroke();
+      c.fillStyle = "rgba(" + col + ",0.4)";
+      const dx = clamp(st.x - st.sx, -ring, ring), dy = clamp(st.y - st.sy, -ring, ring);
+      c.beginPath(); c.arc(st.sx + dx, st.sy + dy, knob, 0, TAU); c.fill();
     };
-    drawStick(INPUT.touch.move);
-    drawStick(INPUT.touch.aim);
+    drawStick(INPUT.touch.move, "143,255,246");
+    drawStick(INPUT.touch.aim, "255,208,92");
+    /* Idle hint: the two thumb zones, so a first-time player on a phone
+       can see where to put their thumbs before touching anything. */
+    if (INPUT.touch.move.id === -1 && INPUT.touch.aim.id === -1 && GAME.touchHintT > 0) {
+      const a = clamp(GAME.touchHintT / 1.5, 0, 1) * 0.5;
+      const hy = H - ring - Math.round(18 * UIS) - SAFE.b;
+      c.globalAlpha = a;
+      c.font = "700 " + FS(10) + "px Bahnschrift, 'Segoe UI', sans-serif";
+      c.textAlign = "center";
+      c.setLineDash([5 * UIS, 5 * UIS]);
+      c.lineWidth = 2 * UIS;
+      const zone = (zx, col, l1, l2) => {
+        c.strokeStyle = "rgba(" + col + ",0.9)";
+        c.beginPath(); c.arc(zx, hy, ring, 0, TAU); c.stroke();
+        c.fillStyle = "rgba(" + col + ",0.95)";
+        c.fillText(l1, zx, hy - 4 * UIS);
+        c.fillText(l2, zx, hy + 12 * UIS);
+      };
+      zone(W * 0.18 + SAFE.l, "143,255,246", "DRIVE", "TAP = BOMB");
+      zone(W * 0.82 - SAFE.r, "255,208,92", "AIM", "HOLD = FIRE");
+      c.setLineDash([]);
+      c.globalAlpha = 1;
+    }
   }
   /* --- fps --- */
   if (SETTINGS.fps) {
@@ -721,7 +769,7 @@ function bindUI(){
       case "rw-ad":  claimReward(btn.dataset.rw, btn.dataset.cont, true); break;
       case "rw-buy": claimReward(btn.dataset.rw, btn.dataset.cont, false); break;
 
-      case "play": GAME.startRun(); break;
+      case "play": lockLandscape(); GAME.startRun(); break;
       /* Every menu section is a tab inside the single main menu. */
       case "tab": {
         const id = btn.dataset.tab;
@@ -835,6 +883,19 @@ function resolveQuality(){
 /* Landscape-only on phones/tablets: block portrait, pause the run, and
    release the pointer lock until the device is turned back. */
 let PORTRAIT_BLOCKED = false;
+/* Best-effort hardware orientation lock, from inside the deploy gesture.
+   Browsers only honour it while the document is fullscreen and only on
+   phones, so every failure path is silent — the rotate gate below is the
+   guarantee that the game never runs in portrait. */
+function lockLandscape(){
+  if (!INPUT.touchDevice()) return;
+  const so = screen && screen.orientation;
+  if (!so || typeof so.lock !== "function") return;
+  try {
+    const r = so.lock("landscape");
+    if (r && typeof r.catch === "function") r.catch(() => {});
+  } catch (e) { /* unsupported or not fullscreen — the gate covers it */ }
+}
 function checkOrientation(){
   const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
   const portrait = window.innerHeight > window.innerWidth;
@@ -892,6 +953,12 @@ function frame(tms){
     else if (GAME.state === "paused") GAME.resume();
   }
 
+  // touch thumb-zone guide fades on its own clock, and the moment a
+  // finger lands it has served its purpose
+  if (GAME.touchHintT > 0) {
+    if (INPUT.touch.move.id !== -1 || INPUT.touch.aim.id !== -1) GAME.touchHintT = Math.min(GAME.touchHintT, 0.4);
+    GAME.touchHintT -= realDt;
+  }
   // slow-motion recovery (real-time)
   if (GAME.slowmoT > 0) {
     GAME.slowmoT -= realDt;
