@@ -168,6 +168,24 @@ const AUDIO = {
     this.tone({ t: t + 0.14, f: 1170, dur: 0.16, type: "triangle", vol: 0.14 });
   },
   uiClick(){ this.resume(); this.tone({ f: 740, f2: 620, dur: 0.05, type: "triangle", vol: 0.1 }); },
+  /* --- menu feedback --- */
+  uiHover(){ this.tone({ f: 1150, dur: 0.025, type: "sine", vol: 0.035 }); },
+  uiSelect(){
+    const t = this.now();
+    this.tone({ t, f: 620, dur: 0.05, type: "triangle", vol: 0.11 });
+    this.tone({ t: t + 0.05, f: 930, dur: 0.07, type: "triangle", vol: 0.10 });
+  },
+  uiToggle(on){
+    this.tone({ f: on ? 700 : 480, f2: on ? 980 : 360, dur: 0.07, type: "square", vol: 0.09 });
+  },
+  uiBack(){ this.tone({ f: 520, f2: 380, dur: 0.07, type: "triangle", vol: 0.09 }); },
+  uiDeploy(){
+    const t = this.now();
+    this.tone({ t, f: 330, dur: 0.10, type: "sawtooth", vol: 0.13 });
+    this.tone({ t: t + 0.09, f: 495, dur: 0.10, type: "sawtooth", vol: 0.12 });
+    this.tone({ t: t + 0.18, f: 660, dur: 0.22, type: "triangle", vol: 0.14 });
+    this.noise({ t, dur: 0.35, filter: "lowpass", ff: 400, ff2: 1600, vol: 0.12 });
+  },
   waveFanfare(){
     const t = this.now();
     this.tone({ t, f: 440, dur: 0.12, type: "triangle", vol: 0.16 });

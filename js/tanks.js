@@ -369,6 +369,11 @@ class Player extends Tank {
   }
   onDamaged(amount, src){
     AUDIO.hurt();
+    // dropping into critical health punches into brief slow-motion
+    if (this.hp > 0 && this.hp < this.maxHp * 0.2 && this.hp + amount >= this.maxHp * 0.2) {
+      GAME.slowmo(0.4, 0.6);
+      FX.doFlash(0.3, "255,60,70");
+    }
     CAM.addShake(clamp(amount / 60, 0.12, 0.5));
     FX.doFlash(clamp(amount / 220, 0.05, 0.22), "255,80,90");
     GAME.stats.damageTaken += amount;
@@ -450,6 +455,35 @@ const ENEMY_TYPES = {
     score: 280, cost: 8, barrelLen: 20, cloak: true,
     style: { hull: "#4a3f6b", dark: "#28223c", accent: "#d0b0ff", barrel: "#372e52" },
   },
+  /* ---- armour classes ---- */
+  panzer: {
+    hp: 120, speed: 78, accel: 5, turn: 4.2, turretSpd: 2.8, reload: 2.1,
+    radius: 18, mass: 1.7, range: 470, prefDist: 270, aimErr: 0.12, lead: 0.5,
+    shell: { spd: 420, dmg: 15, r: 5, bounces: 1, color: "#cfd6dd", brickDmg: 2 },
+    score: 290, cost: 9, barrelLen: 26,
+    style: { hull: "#5b6470", dark: "#333a44", accent: "#cfd6dd", barrel: "#454e59" },
+  },
+  mbt: {
+    hp: 210, speed: 70, accel: 4.4, turn: 3.4, turretSpd: 2.4, reload: 2.5,
+    radius: 21, mass: 2.2, range: 560, prefDist: 320, aimErr: 0.08, lead: 0.7,
+    shell: { spd: 470, dmg: 22, r: 6, bounces: 1, color: "#d8e07a", brickDmg: 3 },
+    score: 420, cost: 13, barrelLen: 32, twin: true,
+    style: { hull: "#5a6b3a", dark: "#31391d", accent: "#d8e07a", barrel: "#44512b" },
+  },
+  lighttank: {
+    hp: 40, speed: 158, accel: 9.5, turn: 8, turretSpd: 6, reload: 1.3,
+    radius: 12, mass: 0.75, range: 340, prefDist: 150, aimErr: 0.17, lead: 0.6,
+    shell: { spd: 500, dmg: 8, r: 3.2, bounces: 1, color: "#ffe0a8", brickDmg: 1 },
+    score: 165, cost: 4, barrelLen: 18,
+    style: { hull: "#b09a63", dark: "#665938", accent: "#ffe0a8", barrel: "#8a7749" },
+  },
+  support: {
+    hp: 78, speed: 96, accel: 6.5, turn: 5.5, turretSpd: 3.4, reload: 2.8,
+    radius: 16, mass: 1.2, range: 340, prefDist: 330, aimErr: 0.2, lead: 0.3,
+    shell: { spd: 380, dmg: 7, r: 4, bounces: 0, color: "#7affd6", brickDmg: 1 },
+    score: 340, cost: 10, barrelLen: 19, repair: 11, repairRange: 230,
+    style: { hull: "#2f7a68", dark: "#17423a", accent: "#7affd6", barrel: "#245d50" },
+  },
   boss: {
     boss: true, title: "COMMAND UNIT",
     hp: 650, speed: 66, accel: 4.5, turn: 3.4, turretSpd: 2.8, reload: 2.0,
@@ -486,9 +520,18 @@ const ENEMY_TYPES = {
     attacks: ["blink", "radial"],
     style: { hull: "#5a3f8a", dark: "#2e2049", accent: "#c9a0ff", barrel: "#432f68" },
   },
+  overlord: {
+    boss: true, title: "OVERLORD",
+    hp: 1250, speed: 58, accel: 3.6, turn: 2.8, turretSpd: 2.4, reload: 1.9,
+    radius: 40, mass: 5.5, range: 700, prefDist: 300, aimErr: 0.08, lead: 0.8,
+    shell: { spd: 460, dmg: 20, r: 7, bounces: 1, color: "#ff9de0", brickDmg: 3, splash: 74 },
+    score: 4200, cost: 0, barrelLen: 50, twin: true,
+    attacks: ["radial", "shockwave", "barrage", "charge"],
+    style: { hull: "#7a2e6a", dark: "#3f1436", accent: "#ff9de0", barrel: "#5c2050" },
+  },
 };
 /* Boss roster in the order sectors present them. */
-const BOSS_ORDER = ["boss", "titan", "siege", "phantom"];
+const BOSS_ORDER = ["boss", "titan", "siege", "phantom", "overlord"];
 function bossTypeForLevel(level){
   return BOSS_ORDER[Math.max(0, Math.floor(level / 3) - 1) % BOSS_ORDER.length];
 }
@@ -789,6 +832,21 @@ class Enemy extends Tank {
   /* ---- per-type traits: guardian shield regen, stealth cloak ---- */
   tickTraits(dt, w){
     const D = this.def;
+    if (D.repair) {
+      // support tank: slowly rebuilds nearby damaged allies
+      this.repairT = (this.repairT || 0) - dt;
+      if (this.repairT <= 0) {
+        this.repairT = 0.5;
+        for (const e of WORLD.enemies) {
+          if (e === this || !e.alive || e.hp >= e.maxHp) continue;
+          if (dist2(e.x, e.y, this.x, this.y) > D.repairRange * D.repairRange) continue;
+          e.hp = Math.min(e.maxHp, e.hp + D.repair);
+          fxRing(e.x, e.y, e.radius + 8, "#7affd6", 0.28);
+          PARTS.spawn({ x: this.x, y: this.y, vx: (e.x - this.x) * 1.4, vy: (e.y - this.y) * 1.4,
+            type: "trail", size: 3, size2: 0.5, life: 0.7, color: "#7affd6", layer: 1 });
+        }
+      }
+    }
     if (D.shieldMax) {
       // shield rebuilds only while out of contact
       this.shieldT = 1e9;

@@ -62,11 +62,20 @@ rotating wireframe polygons, orbiting glow nodes and a scanning bar, with
 layered glow and shadow on the panel. All of it stops under
 `prefers-reduced-motion`.
 
-**Hostiles** — grunt, hunter, sniper, bomber, heavy, plus scout (fast, rams),
-artillery (long-range splash), guardian (regenerating shield) and stealth
-(cloaks between shots). Four bosses rotate across sectors: Command Unit,
-Titan Walker (ground-slam shockwaves), Siege Platform (mortar barrage) and
-Phantom Prototype (cloaks and blinks).
+**Hostiles** — thirteen tank classes: grunt, hunter, sniper, bomber, heavy,
+scout (fast, rams), artillery (long-range splash), guardian (regenerating
+shield), stealth (cloaks between shots), **light tank** (fast skirmisher),
+**panzer** (steel-grey medium armour), **MBT** (olive main battle tank, twin
+gun) and **support** (teal; repairs nearby hostiles). Five bosses rotate
+across sectors: Command Unit, Titan Walker (ground-slam shockwaves), Siege
+Platform (mortar barrage), Phantom Prototype (cloaks and blinks) and
+**Overlord** (all four attack patterns).
+
+**Emplacements** — static hostile structures spread across the arena with a
+minimum spacing so it never feels crowded: **gun nests** that track and fire,
+**lighthouses** whose sweeping beam reveals you to the AI, and **bunkers**
+that soak damage. The HUD shows a live destroyed / total counter and clearing
+them all pays a bonus.
 
 **Arenas** — sixteen locations (including pink, orange, dark-green and black
 zones) and eight arena shapes (grid, diamond, rotunda,
@@ -155,6 +164,7 @@ bonuses reachable.
 | Land in gameplay fast | Single click from menu to gameplay; `gameplayStart` fires at real play |
 | Chromebook / low-end devices | Four quality tiers (Ultra default on desktop); phones and tablets step down to High, and the floor/decal buffers scale with the tier |
 | Whole arena visible | Minimap sits in the top-right corner and always fits the full map |
+| Landscape only on phones | A rotate gate pauses the game and asks the player to turn the device; the layout compacts for short landscape screens and touch targets grow |
 | No custom fullscreen button, no cross-promotion, no external ads | None present |
 | AZERTY keyboards | Movement reads physical key codes, so WASD maps to ZQSD |
 

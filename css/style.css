@@ -495,3 +495,80 @@ h1.title::after{
   .tab{min-width:0;font-size:10.5px;letter-spacing:.12em;padding:8px 4px;}
   .mfx-poly{display:none;}
 }
+
+/* ============================================================
+   MOBILE — landscape only, and a layout tuned for short screens
+   ============================================================ */
+#rotate-gate{
+  position:fixed;inset:0;z-index:200;display:none;
+  align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at center, #101a24, #04060a 75%);
+  text-align:center;
+}
+body.portrait-block #rotate-gate{display:flex;}
+.rg-icon{width:74px;height:110px;margin:0 auto 22px;position:relative;}
+.rg-icon span{
+  position:absolute;inset:0;border:3px solid var(--friend);border-radius:10px;
+  box-shadow:0 0 30px rgba(70,224,216,0.35);
+  animation:rg-turn 2.2s ease-in-out infinite;
+}
+@keyframes rg-turn{
+  0%,35%{transform:rotate(0);}
+  65%,100%{transform:rotate(-90deg);}
+}
+.rg-title{
+  font-size:19px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;
+  color:#eaf6fa;text-shadow:0 0 22px rgba(70,224,216,0.4);
+}
+.rg-sub{
+  margin-top:9px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-dim);
+}
+@media (prefers-reduced-motion: reduce){ .rg-icon span{animation:none;} }
+
+/* Short landscape screens (phones held sideways): compact the one menu so
+   it never scrolls off, while keeping the desktop layout and proportions. */
+@media (max-height:520px){
+  .panel{padding:12px 18px 12px;max-height:96vh;}
+  /* wide-but-short phones: lay the modes out in three columns so the whole
+     menu fits without scrolling */
+  .mode-list{grid-template-columns:repeat(3,1fr);}
+  .menu-head .subtitle{display:none;}
+  .tab-h{margin:0 0 5px;}
+  .menu-panel{max-width:min(720px,96vw);}
+  h1.title{font-size:clamp(26px,5.2vw,38px);}
+  .subtitle{margin:8px 0 12px;font-size:11px;}
+  .eyebrow{font-size:9.5px;margin-bottom:6px;}
+  .deploy-btn{font-size:14px;padding:10px 18px 9px;margin:2px 0 10px;}
+  .tabs{margin:2px 0 10px;}
+  .tab{padding:7px 6px;font-size:11px;}
+  .mode-list{gap:6px;}
+  .mode-card{padding:8px 11px;}
+  .mode-name{font-size:12.5px;}
+  .mode-sub{font-size:10.5px;}
+  .set-grid{gap:9px 14px;}
+  .set-grid label{font-size:11.5px;}
+  input[type=range]{width:150px;}
+  .offer{margin:12px 0 2px;padding:10px 12px 12px;}
+  .offer-desc{font-size:12px;}
+  .btn{font-size:13px;padding:10px 16px 9px;}
+  .foot,.operator,.mode-line{font-size:10px;}
+  .cg-banner.has-banner{height:50px;margin:10px auto 2px;}
+  .intel{font-size:11.5px;gap:5px 16px;}
+  .menu-foot{margin-top:8px;}
+}
+@media (max-height:400px){
+  .mode-list{grid-template-columns:repeat(4,1fr);}
+  h1.title{font-size:clamp(22px,4.4vw,30px);}
+  .mode-sub{display:none;}
+}
+/* Touch devices get roomier tap targets on every menu control. */
+@media (pointer:coarse){
+  .btn{padding:14px 20px 13px;}
+  .tab{padding:12px 8px;}
+  .mode-card{padding:13px 14px;}
+  select{padding:10px 12px;font-size:14px;}
+  .tog .sw{width:52px;height:26px;}
+  .tog .sw::after{width:18px;height:18px;}
+  .tog input:checked + .sw::after{left:30px;}
+}

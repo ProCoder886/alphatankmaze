@@ -63,6 +63,12 @@ function explode(x, y, opts){
     if (b.exploding) continue;
     if (dist2(x, y, b.x, b.y) < (radius + b.r) ** 2) damageBarrel(b, 999, owner);
   }
+  // emplacements take blast damage
+  for (const em of WORLD.emplacements) {
+    if (!em.alive) continue;
+    const d = dist(x, y, em.x, em.y);
+    if (d < radius + em.r) damageEmplacement(em, dmg * clamp(1 - d / (radius + em.r), 0.15, 1), owner);
+  }
   // chain: mines
   for (const m of WORLD.mines) {
     if (m.fuse >= 0) continue;
@@ -165,6 +171,14 @@ function updateShells(dt){
       for (const m of WORLD.mines) {
         if (m.fuse >= 0 || m.arm > 0) continue;
         if (dist2(s.x, s.y, m.x, m.y) < 12 * 12) { m.fuse = 0.02; killShell(s, i); dead = true; break; }
+      }
+      // shells hit emplacements
+      if (!dead) for (const em of WORLD.emplacements) {
+        if (!em.alive || s.team === "enemy") continue;
+        if (dist2(s.x, s.y, em.x, em.y) < (em.r + s.r) ** 2) {
+          damageEmplacement(em, s.dmg, s.owner);
+          killShell(s, i); dead = true; break;
+        }
       }
       // shells pop barrels
       if (!dead) for (const b of WORLD.barrels) {
@@ -352,6 +366,139 @@ function drawBarrels(c){
     c.fillStyle = b.hp < b.maxHp * 0.5 ? "#ff4d5e" : "#d4552f";
     c.beginPath(); c.arc(0, 0, 4, 0, TAU); c.fill();
     c.restore();
+  }
+}
+
+/* ================================================================
+   ENEMY EMPLACEMENTS
+   Static hostile structures scattered across the arena: gun nests that
+   shoot, lighthouses that sweep a beam and reveal you, and bunkers that
+   simply soak damage. They are spaced apart so the map never feels
+   crowded, and the HUD tracks how many are left.
+   ================================================================ */
+const EMPLACEMENTS = {
+  nest:  { name: "GUN NEST",   hp: 90,  r: 19, color: "#ff7a45", dark: "#5c2a16",
+           range: 380, reload: 1.5, score: 220 },
+  tower: { name: "LIGHTHOUSE", hp: 70,  r: 17, color: "#ffd05c", dark: "#5c4a16",
+           range: 0,   reload: 0,   score: 180, beam: true },
+  bunker:{ name: "BUNKER",     hp: 190, r: 22, color: "#9ad8ff", dark: "#1d3b52",
+           range: 300, reload: 2.6, score: 300 },
+};
+function makeEmplacement(kind, x, y){
+  const D = EMPLACEMENTS[kind];
+  return { kind, def: D, x, y, r: D.r, hp: D.hp, maxHp: D.hp,
+           reloadT: rand(0, D.reload || 1), ang: rand(0, TAU), alive: true, flash: 0 };
+}
+function updateEmplacements(dt){
+  const pl = WORLD.player;
+  for (let i = WORLD.emplacements.length - 1; i >= 0; i--) {
+    const e = WORLD.emplacements[i];
+    e.flash = Math.max(0, e.flash - dt);
+    if (!e.alive) {
+      WORLD.emplacements.splice(i, 1);
+      explode(e.x, e.y, { radius: 96, dmg: 34, owner: null });
+      fxDebris(e.x, e.y, 14, e.def.color);
+      GAME.onEmplacementDown(e);
+      continue;
+    }
+    if (e.def.beam) { e.ang += dt * 0.9; }        // sweeping lighthouse beam
+    if (!pl || !pl.alive || GAME.state !== "playing") continue;
+    const d = dist(e.x, e.y, pl.x, pl.y);
+    if (e.def.beam) {
+      // reveals the player: the beam raises a noise event the AI can hear
+      const beamAng = Math.atan2(pl.y - e.y, pl.x - e.x);
+      if (d < 420 && Math.abs(angDiff(e.ang, beamAng)) < 0.28 &&
+          !WORLD.map.raycast(e.x, e.y, pl.x, pl.y).hit) {
+        NOISES.add(pl.x, pl.y, 420);
+      }
+      continue;
+    }
+    if (d > e.def.range) continue;
+    if (WORLD.map.raycast(e.x, e.y, pl.x, pl.y).hit) continue;
+    e.ang = angMove(e.ang, Math.atan2(pl.y - e.y, pl.x - e.x), 2.4 * dt);
+    e.reloadT -= dt;
+    if (e.reloadT <= 0 && Math.abs(angDiff(e.ang, Math.atan2(pl.y - e.y, pl.x - e.x))) < 0.18) {
+      e.reloadT = e.def.reload;
+      spawnShell({ team: "enemy" }, e.x + Math.cos(e.ang) * e.r, e.y + Math.sin(e.ang) * e.r, e.ang,
+        { spd: 400, dmg: e.kind === "bunker" ? 14 : 10, r: 4, bounces: 0, color: e.def.color, brickDmg: 1 });
+      fxMuzzle(e.x + Math.cos(e.ang) * e.r, e.y + Math.sin(e.ang) * e.r, e.ang, 0.8);
+      AUDIO.enemyShoot();
+    }
+  }
+}
+function damageEmplacement(e, d, src){
+  if (!e.alive) return;
+  e.hp -= d;
+  e.flash = 0.12;
+  fxSparkBurst(e.x, e.y, 5, e.def.color);
+  if (e.hp <= 0) { e.alive = false; e.killedBy = src; }
+}
+function drawEmplacements(c, time){
+  for (const e of WORLD.emplacements) {
+    const D = e.def;
+    c.save();
+    c.translate(e.x, e.y);
+    // ground shadow
+    c.fillStyle = "rgba(0,0,0,0.34)";
+    c.beginPath(); c.ellipse(4, 6, e.r * 1.12, e.r * 0.9, 0, 0, TAU); c.fill();
+    // base
+    c.fillStyle = D.dark;
+    c.beginPath(); c.arc(0, 0, e.r, 0, TAU); c.fill();
+    c.strokeStyle = D.color;
+    c.lineWidth = 2;
+    c.beginPath(); c.arc(0, 0, e.r - 2, 0, TAU); c.stroke();
+    // sandbag / plating ring
+    c.fillStyle = "rgba(255,255,255,0.07)";
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * TAU + 0.2;
+      c.beginPath(); c.arc(Math.cos(a) * (e.r - 5), Math.sin(a) * (e.r - 5), 3.4, 0, TAU); c.fill();
+    }
+    if (D.beam) {
+      // rotating lighthouse beam
+      c.save();
+      c.rotate(e.ang);
+      const g = c.createLinearGradient(0, 0, 380, 0);
+      g.addColorStop(0, "rgba(255,208,92,0.30)");
+      g.addColorStop(1, "rgba(255,208,92,0)");
+      c.fillStyle = g;
+      c.beginPath();
+      c.moveTo(0, 0);
+      c.lineTo(380, -58); c.lineTo(380, 58);
+      c.closePath(); c.fill();
+      c.restore();
+      c.fillStyle = "#fff3c0";
+      c.beginPath(); c.arc(0, 0, 6, 0, TAU); c.fill();
+      LIGHTS.add(e.x, e.y, 120, 0.6);
+    } else {
+      // barrel
+      c.save();
+      c.rotate(e.ang);
+      c.fillStyle = D.dark;
+      c.fillRect(e.r * 0.2, -3.4, e.r + 8, 6.8);
+      c.fillStyle = D.color;
+      c.fillRect(e.r + 2, -4.4, 5, 8.8);
+      c.restore();
+      c.fillStyle = D.color;
+      c.beginPath(); c.arc(0, 0, e.r * 0.4, 0, TAU); c.fill();
+    }
+    if (e.flash > 0) {
+      c.globalCompositeOperation = "lighter";
+      c.globalAlpha = e.flash / 0.12 * 0.7;
+      c.fillStyle = "#fff";
+      c.beginPath(); c.arc(0, 0, e.r * 1.15, 0, TAU); c.fill();
+      c.globalCompositeOperation = "source-over";
+      c.globalAlpha = 1;
+    }
+    c.restore();
+    // health bar
+    if (e.hp < e.maxHp) {
+      const w = 30, y = e.y - e.r - 11;
+      c.fillStyle = "rgba(0,0,0,0.55)";
+      c.fillRect(e.x - w / 2, y, w, 4.5);
+      const pct = clamp(e.hp / e.maxHp, 0, 1);
+      c.fillStyle = pct > 0.5 ? "#7be27a" : (pct > 0.25 ? "#ffd05c" : "#ff4d5e");
+      c.fillRect(e.x - w / 2 + 0.75, y + 0.75, (w - 1.5) * pct, 3);
+    }
   }
 }
 

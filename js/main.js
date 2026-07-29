@@ -127,6 +127,14 @@ function drawHUD(c, time){
   else waveTxt += "SECTOR " + GAME.level + "  ·  WAVE " + Math.max(1, GAME.wave) + "/" + GAME.wavesTotal;
   if (GAME.modifier && GAME.waveState === "active") waveTxt += "  ·  " + GAME.modifier.label;
   c.fillText(waveTxt, W / 2, padT + FS(GAME.combo.n > 1 ? 82 : 58));
+  // live emplacement counter
+  if (GAME.obstaclesTotal > 0) {
+    const left = WORLD.emplacements.length;
+    c.fillStyle = left ? "rgba(255,176,58,0.9)" : "rgba(123,226,122,0.95)";
+    c.font = "700 " + FS(10) + "px Consolas, monospace";
+    c.fillText("EMPLACEMENTS  " + (GAME.obstaclesTotal - left) + " / " + GAME.obstaclesTotal + " DESTROYED",
+      W / 2, padT + FS(GAME.combo.n > 1 ? 96 : 72));
+  }
   // Time Attack clock, red and pulsing in the last ten seconds
   if (MD.timeLimit) {
     const low = GAME.timeLeft <= 10;
@@ -387,6 +395,7 @@ function render(time){
   drawBombs(ctx, time);
   drawBarrels(ctx);
   drawPickups(ctx, time);
+  drawEmplacements(ctx, time);
   drawStrikes(ctx, time);
   for (const e of WORLD.enemies) e.draw(ctx, time);
   if (WORLD.player) WORLD.player.draw(ctx, time);
@@ -702,8 +711,12 @@ function bindUI(){
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     if (btn.disabled || CG.busy()) return;   // no input while an ad is in flight
-    AUDIO.uiClick();
-    switch (btn.dataset.act) {
+    const act = btn.dataset.act;
+    if (act === "play" || act === "retry" || act === "restart" || act === "next") AUDIO.uiDeploy();
+    else if (act === "tab" || act === "mode-pick") AUDIO.uiSelect();
+    else if (act === "quit" || act === "back-main") AUDIO.uiBack();
+    else AUDIO.uiClick();
+    switch (act) {
       /* --- CrazyGames rewarded-ad offers --- */
       case "rw-ad":  claimReward(btn.dataset.rw, btn.dataset.cont, true); break;
       case "rw-buy": claimReward(btn.dataset.rw, btn.dataset.cont, false); break;
@@ -756,6 +769,16 @@ function bindUI(){
       SAVE.persist();
     });
   };
+  // audible feedback on every menu control
+  const ui = document.getElementById("ui");
+  ui.addEventListener("change", (e) => {
+    if (e.target.tagName === "SELECT") AUDIO.uiSelect();
+    else if (e.target.type === "checkbox") AUDIO.uiToggle(e.target.checked);
+  });
+  ui.addEventListener("pointerover", (e) => {
+    const t = e.target.closest(".btn, .tab, .mode-card");
+    if (t && !t.disabled && !INPUT.usingTouch) AUDIO.uiHover();
+  });
   onRange("set-sfx", "sfx");
   onRange("set-music", "music");
   onRange("set-shake", "shake");
@@ -809,6 +832,23 @@ function resolveQuality(){
     : (QUALITY[SETTINGS.quality] || QUALITY.ultra);
   resize();
 }
+/* Landscape-only on phones/tablets: block portrait, pause the run, and
+   release the pointer lock until the device is turned back. */
+let PORTRAIT_BLOCKED = false;
+function checkOrientation(){
+  const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  const portrait = window.innerHeight > window.innerWidth;
+  const block = coarse && portrait;
+  if (block === PORTRAIT_BLOCKED) return;
+  PORTRAIT_BLOCKED = block;
+  document.body.classList.toggle("portrait-block", block);
+  const gate = document.getElementById("rotate-gate");
+  if (gate) gate.setAttribute("aria-hidden", block ? "false" : "true");
+  if (block) {
+    INPUT.setPointerLock(false);
+    if (GAME.state === "playing") GAME.pause();
+  }
+}
 function readSafeArea(){
   const el = document.getElementById("safe-probe");
   if (!el) return;
@@ -822,6 +862,7 @@ function resize(){
   W = window.innerWidth; H = window.innerHeight;
   UIS = clamp(Math.min(W / 1280, H / 720), 1, 1.45);
   readSafeArea();
+  checkOrientation();
   DPR = Math.min(window.devicePixelRatio || 1, QT.dpr);
   cv.width = Math.round(W * DPR);
   cv.height = Math.round(H * DPR);
@@ -839,7 +880,7 @@ function frame(tms){
   /* An ad is being requested or is playing: the game must not
      progress and input must not reach it (CrazyGames requirement).
      Rendering continues so the frozen frame stays behind the overlay. */
-  if (CG.busy()) {
+  if (CG.busy() || PORTRAIT_BLOCKED) {
     render(t);
     INPUT.endFrame();
     return;
@@ -895,7 +936,13 @@ window.addEventListener("load", async () => {
   // Phones/tablets and the CrazyGames App start a tier down so weaker
   // devices reach a stable frame rate immediately; auto-quality still
   // adapts from there.
-  if (CG.device === "mobile" || CG.device === "tablet") {
+  // Treat a coarse pointer on a small screen as mobile too: the SDK's
+  // device type is unavailable off-platform, and Ultra is too heavy for
+  // phone GPUs.
+  const smallTouch = window.matchMedia &&
+    window.matchMedia("(pointer: coarse)").matches &&
+    Math.min(window.innerWidth, window.innerHeight) <= 820;
+  if (CG.device === "mobile" || CG.device === "tablet" || smallTouch) {
     autoTier = 2;
     // Ultra is the desktop default; phones and tablets step down so the
     // frame rate stays smooth on the weakest supported hardware.
@@ -914,6 +961,8 @@ window.addEventListener("load", async () => {
   INPUT.init(cv);
   bindUI();
   window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", () => setTimeout(resize, 80));
+  checkOrientation();
   CG.loadingStop();               // loading complete, menu is interactive
   requestAnimationFrame(frame);
 });

@@ -396,7 +396,8 @@ function drawPowerRack(c, time, x1, yTop){
   if (!WORLD.player) return yTop;
 
   const cols = W < 980 ? 4 : 7;
-  const r = Math.round(13 * UIS);                 // circle radius
+  // Touch needs a comfortably large tap target on the rack.
+  const r = Math.round((INPUT.usingTouch ? 17 : 13) * UIS);
   const gapX = Math.round(r * 2 + 12 * UIS);
   const gapY = Math.round(r * 2 + 20 * UIS);
   const rows = Math.ceil(P.DEFS.length / cols);
@@ -422,7 +423,7 @@ function drawPowerRack(c, time, x1, yTop){
     const n = P.charges[p.id] | 0;
     const cd = P.cds[p.id] || 0;
     const usable = n > 0 && cd <= 0;
-    P.rack.push({ id: p.id, x: cx, y: cy, r: r + 6 * UIS });
+    P.rack.push({ id: p.id, x: cx, y: cy, r: r + (INPUT.usingTouch ? 12 : 6) * UIS });
 
     // dim disc
     c.globalAlpha = usable ? 1 : 0.45;

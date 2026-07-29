@@ -14,6 +14,18 @@
 <div id="crt"></div>
 <div id="safe-probe" aria-hidden="true"></div>
 
+<!-- ============ ORIENTATION GATE ============
+     The game is landscape-only. On a portrait phone it pauses and asks the
+     player to rotate. (On CrazyGames the platform also enforces the
+     orientation chosen at submission, so this never appears there.) -->
+<div id="rotate-gate" aria-hidden="true">
+  <div class="rg-box">
+    <div class="rg-icon"><span></span></div>
+    <div class="rg-title">Rotate your device</div>
+    <div class="rg-sub">Alpha Tank plays in landscape</div>
+  </div>
+</div>
+
 <!-- ============ AD OVERLAY ============
      Blocks all interaction from the moment an ad is requested until
      adFinished/adError fires, as required by the CrazyGames SDK. -->

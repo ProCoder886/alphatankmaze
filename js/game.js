@@ -40,8 +40,11 @@ const DIRECTOR = {
     if (level >= 2) unlocked.push("bomber");
     if (level >= 3) unlocked.push("sniper");
     if (level >= 4) unlocked.push("heavy", "stealth");
+    if (level >= 2) unlocked.push("lighttank");
+    if (level >= 4) unlocked.push("panzer");
     if (level >= 5) unlocked.push("artillery");
-    if (level >= 6) unlocked.push("guardian");
+    if (level >= 6) unlocked.push("guardian", "support");
+    if (level >= 7) unlocked.push("mbt");
     const out = [];
     let guard = 0;
     while (budget > 0 && out.length < 12 && guard++ < 60) {
@@ -64,6 +67,8 @@ const DIRECTOR = {
     { id: "swarm",   label: "SCOUT SWARM",     apply: { speed: 1.1 }, force: ["scout", "scout", "scout", "scout", "scout", "scout"] },
     { id: "siegeline",label: "SIEGE LINE",     apply: { hp: 1.2 }, force: ["artillery", "artillery", "guardian", "grunt"] },
     { id: "ghosts",  label: "GHOST PROTOCOL",  apply: { aim: 0.8 }, force: ["stealth", "stealth", "stealth", "hunter"] },
+    { id: "armor",   label: "PANZER DIVISION", apply: { hp: 1.15 }, force: ["panzer", "panzer", "mbt", "support"] },
+    { id: "recon",   label: "RECON SWEEP",     apply: { speed: 1.15 }, force: ["lighttank", "lighttank", "lighttank", "scout", "scout"] },
   ],
   rollModifier(level, wave){
     if (wave < 2 || level < 2) return null;
@@ -80,6 +85,7 @@ const WORLD = {
   player: null,
   enemies: [], shells: [], mines: [], bombs: [], barrels: [], pickups: [],
   missiles: [], drones: [], strikes: [],   // superpower objects
+  emplacements: [],                        // static enemy structures
   weatherAcc: 0,
 
   reset(levelData){
@@ -90,6 +96,7 @@ const WORLD = {
     this.bombs = []; this.pickups = [];
     this.missiles = []; this.drones = []; this.strikes = [];
     this.barrels = levelData.barrels.map(makeBarrel);
+    this.emplacements = (levelData.emplacements || []).map(e => makeEmplacement(e.kind, e.x, e.y));
     PARTS.pool.length = 0;
     LIGHTS.flashes.length = 0;
     NOISES.list.length = 0;
@@ -130,6 +137,7 @@ const WORLD = {
     updateMines(dt);
     updateBarrels(dt);
     updatePickups(dt);
+    updateEmplacements(dt);
     updateMissiles(dt);
     updateDrones(dt);
     updateStrikes(dt);
@@ -261,6 +269,7 @@ const MINI = {
       c.fill();
     };
     for (const b of WORLD.barrels) dot(b.x, b.y, "rgba(255,150,80,0.7)", 1.6);
+    for (const e of WORLD.emplacements) dot(e.x, e.y, e.def.color, 2.6);
     for (const p of WORLD.pickups) dot(p.x, p.y, "#ffe27a", 2);
     for (const e of WORLD.enemies) dot(e.x, e.y, e.boss ? "#ff4d5e" : "#ff7a45", e.boss ? 4 : 2.4);
     if (WORLD.player && WORLD.player.alive) dot(WORLD.player.x, WORLD.player.y, "#46e0d8", 3);
@@ -365,6 +374,7 @@ const GAME = {
     this.wavesTotal = M.survival ? 9999
       : (M.single ? 3 : clamp(3 + Math.floor((level - 1) / 2), 3, 5));
     this.barrelsLeft = WORLD.barrels.length;
+    this.obstaclesTotal = WORLD.emplacements.length;
     this.waveState = M.noEnemies ? "explore" : "prep";
     this.prepT = 2.4;
     this.modifier = null;
@@ -451,6 +461,15 @@ const GAME = {
     /* Kill reward: every 6th kill in a streak refills a superpower, so
        powers are earned by playing rather than only bought with ads. */
     this.killStreak++;
+    // cinematic slow-motion on a big streak or a last-hostile kill
+    if (this.killStreak > 0 && this.killStreak % 12 === 0) {
+      this.slowmo(0.42, 0.7);
+      fxText(e.x, e.y - 40, "x" + this.killStreak + " STREAK", "#ffe27a", 17);
+      AUDIO.powerUp();
+    } else if (!e.boss && WORLD.enemies.filter(x => x.alive && x !== e).length === 0 &&
+               !this.spawnQueue.length && this.waveState === "active") {
+      this.slowmo(0.35, 0.55);      // final kill of a wave
+    }
     if (this.killStreak % 6 === 0) {
       const p = POWERS.grantRandom(1);
       if (p) fxText(e.x, e.y - 26, "+1 " + p.label, p.color, 13);
@@ -491,6 +510,22 @@ const GAME = {
     CG.gameplayStop();
   },
   slowmo(scale, dur){ this.timescale = scale; this.slowmoT = dur; },
+
+  /* Total emplacements this sector, and how many are still standing —
+     shown live in the HUD. */
+  obstaclesTotal: 0,
+  onEmplacementDown(e){
+    this.addScore(e.def.score, e.x, e.y - 12);
+    this.addSalvage(30);
+    this.stats.obstacles = (this.stats.obstacles || 0) + 1;
+    fxText(e.x, e.y - 28, e.def.name + " DOWN", e.def.color, 13);
+    CAM.addShake(0.3);
+    if (WORLD.emplacements.length === 0 && this.obstaclesTotal > 0) {
+      this.showBanner("ALL EMPLACEMENTS DESTROYED", "+400", 1.8);
+      this.addScore(400);
+      POWERS.grantRandom(1);
+    }
+  },
 
   /* ---- salvage: the non-ad currency for every ad reward ---- */
   addSalvage(n, x, y){

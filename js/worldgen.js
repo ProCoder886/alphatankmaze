@@ -167,6 +167,28 @@ function polyTest(u, v, n, rot){
 }
 function shapeById(id){ return SHAPES.find(s => s.id === id) || SHAPES[0]; }
 
+/* Picks a fresh deployment zone for the "Random" setting.
+   Deliberately uses Math.random rather than the level-seeded generator RNG:
+   that RNG is a pure function of the level number, so it returned the same
+   zone for a given sector on every single run. Also avoids repeating the
+   previous zone back to back. */
+let _lastZone = -1;
+function rollRandomZone(){
+  if (THEMES.length < 2) return 0;
+  let i = (Math.random() * THEMES.length) | 0;
+  if (i === _lastZone) i = (i + 1 + ((Math.random() * (THEMES.length - 1)) | 0)) % THEMES.length;
+  _lastZone = i;
+  return i;
+}
+/* Random arena shapes follow the zone when no shape is pinned. */
+let _lastShape = -1;
+function rollRandomShape(){
+  let i = (Math.random() * SHAPES.length) | 0;
+  if (i === _lastShape) i = (i + 1) % SHAPES.length;
+  _lastShape = i;
+  return i;
+}
+
 class TileMap {
   constructor(cols, rows){
     this.cols = cols; this.rows = rows;
@@ -460,7 +482,9 @@ function buildFloor(map, theme, rng){
    can never become unclearable. ---- */
 function genLevel(level, opts){
   opts = opts || {};
-  const rng = mulberry32((opts.seed !== undefined ? opts.seed : 0xC0FFEE) ^ (level * 2654435761));
+  const baseSeed = opts.seed !== undefined ? opts.seed
+    : (SETTINGS && SETTINGS.location === "random" ? (Math.random() * 0x7fffffff) | 0 : 0xC0FFEE);
+  const rng = mulberry32(baseSeed ^ (level * 2654435761));
   // Arena size: half of the doubled layout, so the playfield stays tight
   // and readable in every mode.
   let cols = clamp(29 + level * 2, 29, 51);
@@ -470,7 +494,9 @@ function genLevel(level, opts){
   const map = new TileMap(cols, rows);
   map.t.fill(1);
 
-  const shape = opts.shape ? shapeById(opts.shape) : SHAPES[(level - 1) % SHAPES.length];
+  const shape = opts.shape ? shapeById(opts.shape)
+    : (SETTINGS && SETTINGS.location === "random" ? SHAPES[rollRandomShape()]
+                                                  : SHAPES[(level - 1) % SHAPES.length]);
   const inShape = (c, r) => {
     if (c <= 0 || r <= 0 || c >= cols - 1 || r >= rows - 1) return false;
     const u = (c / (cols - 1)) * 2 - 1;
@@ -608,13 +634,30 @@ function genLevel(level, opts){
     if (barrels.some(b => Math.abs(b.c - c) + Math.abs(b.r - r) < 3)) continue;
     barrels.push({ c, r });
   }
+  /* Enemy emplacements — spread out with a minimum spacing so the arena
+     never feels crowded, and kept clear of the player's spawn. */
+  const emplacements = [];
+  const EMP_MIN = CFG.TILE * 7;
+  const empWant = Math.min(12, 3 + Math.floor(level * 0.9));
+  let eTries = 0;
+  while (emplacements.length < empWant && eTries++ < 900) {
+    const c = 2 + ((rng() * (cols - 4)) | 0), r = 2 + ((rng() * (rows - 4)) | 0);
+    if (map.get(c, r) !== 0) continue;
+    const p2 = map.center(c, r);
+    if (dist2(p2.x, p2.y, ps.x, ps.y) < (CFG.TILE * 9) ** 2) continue;
+    if (emplacements.some(e => dist2(e.x, e.y, p2.x, p2.y) < EMP_MIN * EMP_MIN)) continue;
+    if (barrels.some(b => Math.abs(b.c - c) + Math.abs(b.r - r) < 3)) continue;
+    const kind = rng() < 0.5 ? "nest" : (rng() < 0.5 ? "tower" : "bunker");
+    emplacements.push({ kind, x: p2.x, y: p2.y });
+  }
+
   let theme;
   if (opts.theme !== undefined && opts.theme !== null) theme = THEMES[opts.theme % THEMES.length];
-  else if (SETTINGS && SETTINGS.location === "random") theme = THEMES[(rng() * THEMES.length) | 0];
+  else if (SETTINGS && SETTINGS.location === "random") theme = THEMES[rollRandomZone()];
   else if (SETTINGS && SETTINGS.location !== undefined && SETTINGS.location !== "rotate")
     theme = THEMES[(+SETTINGS.location || 0) % THEMES.length];
   else theme = THEMES[(level - 1) % THEMES.length];
-  return { map, theme, shape, floorCv: buildFloor(map, theme, rng), playerSpawn: ps, barrels, rng };
+  return { map, theme, shape, floorCv: buildFloor(map, theme, rng), playerSpawn: ps, barrels, emplacements, rng };
 }
 
 /* ---- A* pathfinding (4-dir, optional brick-breach costing) ---- */
