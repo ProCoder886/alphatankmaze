@@ -544,12 +544,14 @@ class Enemy extends Tank {
     this.boss = !!D.boss;
     this.def = D;
     mods = mods || {};
-    const hpScale = (1 + (level - 1) * 0.07) * (mods.hp || 1) * DIRECTOR.hpMul();
-    this.hp = this.maxHp = Math.round(D.hp * hpScale * (D.boss ? 1 + level * 0.15 : 1));
+    const hpScale = (1 + (level - 1) * 0.11) * (mods.hp || 1) * DIRECTOR.hpMul();
+    this.hp = this.maxHp = Math.round(D.hp * hpScale * (D.boss ? 1 + level * 0.2 : 1));
     this.speed = D.speed * (mods.speed || 1) * DIRECTOR.speedMul();
     this.accel = D.accel; this.turn = D.turn;
-    this.turretSpd = D.turretSpd;
-    this.reload = D.reload;
+    // a sharper turret keeps pace with the higher tiers' accuracy
+    this.turretSpd = D.turretSpd * clamp(2 - DIRECTOR.aggroMul(), 1, 1.5);
+    // rate of fire scales with tier and sector
+    this.reload = D.reload * DIRECTOR.reloadMul();
     this.radius = D.radius; this.mass = D.mass;
     this.barrelLen = D.barrelLen;
     this.twin = !!D.twin;
@@ -568,8 +570,8 @@ class Enemy extends Tank {
     this.strafeT = rand(0.8, 2);
     this.burstLeft = 0; this.burstT = 0;
     this.lockT = -1; this.lockPt = null;
-    this.bombCd = rand(2, 5);
-    this.mineCd = rand(3, 6);
+    this.bombCd = rand(2, 5) * DIRECTOR.aggroMul();
+    this.mineCd = rand(3, 6) * DIRECTOR.aggroMul();
     this.fleeing = false;
     this.stuckT = 0;
     this.prevX = x; this.prevY = y;
@@ -792,7 +794,7 @@ class Enemy extends Tank {
         // bombers seed corridors while patrolling
         if (this.type === "bomber" && this.mineCd <= 0 && chance(dt * 0.5)) {
           layMine(this.x, this.y, this);
-          this.mineCd = rand(5, 8);
+          this.mineCd = rand(5, 8) * DIRECTOR.aggroMul();
         }
         break;
       }
@@ -859,7 +861,7 @@ class Enemy extends Tank {
         // bombers drop mines in the player's path
         if (this.type === "bomber" && this.mineCd <= 0 && d < 260) {
           layMine(this.x, this.y, this);
-          this.mineCd = rand(4, 7);
+          this.mineCd = rand(4, 7) * DIRECTOR.aggroMul();
         }
         break;
       }
@@ -1070,15 +1072,18 @@ class Enemy extends Tank {
       this.navTo(w, pl.x, pl.y, true);
       if (this.navGoal && this.bombCd <= 0) this.bombCd = 3;
     }
-    // schedule attacks
-    this.attackT -= dt;
+    // schedule attacks — cadence tightens with difficulty
+    this.attackT -= dt * (1 / DIRECTOR.aggroMul());
     if (this.attackT <= 0) {
       const set = this.attackSet;
       // prefer the close-range option when the player is near enough
       let choice = pick(set);
       if ((choice === "charge" || choice === "shockwave") && d > 460) choice = "radial";
       this.attack = choice;
-      this.telegraphT = choice === "charge" ? 0.8 : (choice === "blink" ? 0.45 : 0.9);
+      /* The telegraph is the player's window to react, so it shortens
+         with difficulty but never below a readable floor. */
+      const tel = choice === "charge" ? 0.8 : (choice === "blink" ? 0.45 : 0.9);
+      this.telegraphT = Math.max(0.3, tel * DIRECTOR.aggroMul());
       if (choice === "charge" || choice === "shockwave") AUDIO.bossAlert();
     }
   }

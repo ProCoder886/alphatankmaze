@@ -100,38 +100,112 @@ const POWERS = {
     return true;
   },
 
-  /* Booster Bomb — ring of charges, staggered so the blasts cascade. */
-  fx_booster(pl){
-    const n = 5, R = 46;
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * TAU + pl.angle;
-      const x = pl.x + Math.cos(a) * R, y = pl.y + Math.sin(a) * R;
-      if (WORLD.map.solidAtXY(x, y)) continue;
-      setTimeoutSafe(() => plantBomb(x, y, pl, { fuse: 0.9 + i * 0.06, radius: 104, dmg: 54 }), i * 40);
+  /* ================================================================
+     AIM TARGETING
+     Every offensive power resolves to the point under the crosshair
+     rather than to the tank's own position, so a power is aimed the same
+     way the cannon is. Three things matter for that to feel right:
+
+       - Touch and gamepad have no cursor, so the turret direction stands
+         in for one at a comfortable stand-off range.
+       - The point is clamped to the power's reach, so nothing can be
+         dropped clear across the arena.
+       - A raycast stops the point at the first wall in the way, so a
+         strike aimed through a wall lands against it instead of behind
+         it where the player cannot see the result.
+     ================================================================ */
+  aimPoint(pl, maxRange, minRange){
+    const reach = maxRange || 520;
+    let tx, ty;
+    const ov = INPUT.aimOverride();
+    if (ov.has || INPUT.usingTouch || INPUT.usingPad) {
+      // no cursor: aim down the barrel at a readable stand-off
+      const a = ov.has ? ov.ang : pl.tAngle;
+      tx = pl.x + Math.cos(a) * reach * 0.62;
+      ty = pl.y + Math.sin(a) * reach * 0.62;
+    } else {
+      const wp = CAM.screenToWorld(INPUT.mouse.x, INPUT.mouse.y);
+      tx = wp.x; ty = wp.y;
     }
-    fxRing(pl.x, pl.y, R + 16, "#ff9a3c", 0.45);
-    AUDIO.bombPlant();
-    GAME.showBanner("BOOSTER BOMB", "", 1.1);
+    let dx = tx - pl.x, dy = ty - pl.y;
+    let d = Math.hypot(dx, dy);
+    const a = d > 1 ? Math.atan2(dy, dx) : pl.tAngle;
+    // clamp into the power's usable band
+    if (minRange && d < minRange) d = minRange;
+    if (d > reach) d = reach;
+    tx = pl.x + Math.cos(a) * d;
+    ty = pl.y + Math.sin(a) * d;
+    /* Stop at the first wall so the strike lands where the player can see
+       it — but never inside the minimum stand-off. Facing a wall at point
+       blank must not walk an Atomic Strike back onto the player's own
+       tank; the blast simply overlaps the wall, which it would level
+       anyway. */
+    const rc = WORLD.map.raycast(pl.x, pl.y, tx, ty);
+    if (rc.hit) {
+      const back = Math.max(minRange || 0, rc.d - 10);
+      tx = pl.x + Math.cos(a) * back;
+      ty = pl.y + Math.sin(a) * back;
+    }
+    return { x: tx, y: ty, ang: a, dist: Math.hypot(tx - pl.x, ty - pl.y) };
+  },
+  /* The hostile nearest the aim point, for powers that lock a target. */
+  targetNear(x, y, radius){
+    let best = null, bestD = radius * radius;
+    for (const e of WORLD.enemies) {
+      if (!e.alive || e.spawnT > 0) continue;
+      const d = dist2(e.x, e.y, x, y);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return best;
   },
 
-  /* Freeze Strike — locks hostiles in place; damage is left to the player. */
+  /* Booster Bomb — a cluster salvo lobbed onto the aim point, the
+     charges ringing the impact so the blasts cascade outward. */
+  fx_booster(pl){
+    const t = this.aimPoint(pl, 460, 70);
+    const n = 5, R = 52;
+    // centre charge first, then the ring around it
+    plantBomb(t.x, t.y, pl, { fuse: 0.75, radius: 112, dmg: 60 });
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + t.ang;
+      const x = t.x + Math.cos(a) * R, y = t.y + Math.sin(a) * R;
+      if (WORLD.map.solidAtXY(x, y)) continue;
+      setTimeoutSafe(() => plantBomb(x, y, pl, { fuse: 0.85 + i * 0.06, radius: 104, dmg: 54 }), i * 40);
+    }
+    fxRing(t.x, t.y, R + 20, "#ff9a3c", 0.45);
+    fxTracer(pl.x, pl.y, t.x, t.y, "#ff9a3c");
+    AUDIO.bombPlant();
+    GAME.showBanner("BOOSTER BOMB", "Cluster away", 1.1);
+  },
+
+  /* Freeze Strike — a cryo burst centred on the aim point, so it can be
+     dropped onto a group across the arena instead of only on whatever
+     happens to be crowding the player. */
   fx_freeze(pl){
-    const R = 430;
-    fxRing(pl.x, pl.y, R, "#7ef0ff", 0.6);
-    fxRing(pl.x, pl.y, R * 0.6, "#bffcff", 0.45);
+    const t = this.aimPoint(pl, 520);
+    const R = 300;
+    fxRing(t.x, t.y, R, "#7ef0ff", 0.6);
+    fxRing(t.x, t.y, R * 0.6, "#bffcff", 0.45);
+    fxTracer(pl.x, pl.y, t.x, t.y, "#7ef0ff");
     FX.doFlash(0.14, "150,240,255");
-    LIGHTS.flash(pl.x, pl.y, R, 0.4, 0.9);
+    LIGHTS.flash(t.x, t.y, R, 0.4, 0.9);
     AUDIO.freeze();
     CAM.addShake(0.18);
     let hit = 0;
     for (const e of WORLD.enemies) {
-      if (!e.alive || dist2(e.x, e.y, pl.x, pl.y) > R * R) continue;
-      const dur = e.boss ? 2.2 : 4.2;
+      if (!e.alive || dist2(e.x, e.y, t.x, t.y) > R * R) continue;
+      const dur = e.boss ? 2.6 : 5;
       e.stun = Math.max(e.stun, dur);
       e.frozenT = Math.max(e.frozenT || 0, dur);
       e.vel.x *= 0.1; e.vel.y *= 0.1;
       fxSparkBurst(e.x, e.y, 8, "#bffcff");
       hit++;
+    }
+    // static defences seize up too
+    for (const em of WORLD.emplacements) {
+      if (!em.alive || dist2(em.x, em.y, t.x, t.y) > R * R) continue;
+      em.reloadT = Math.max(em.reloadT, 5);
+      fxSparkBurst(em.x, em.y, 6, "#bffcff");
     }
     GAME.showBanner("FREEZE STRIKE", hit ? hit + " hostiles frozen" : "", 1.2);
   },
@@ -140,64 +214,81 @@ const POWERS = {
   fx_explo(pl){
     pl.exploShotT = 12;
     fxRing(pl.x, pl.y, 60, "#ffd05c", 0.4);
+    /* Fires an immediate three-round explosive burst at the aim point on
+       top of arming the buff, so the power lands on something the moment
+       it is pressed rather than only changing what later shots do. */
+    const t = this.aimPoint(pl, 560, 80);
+    const m = pl.muzzle();
+    for (let i = 0; i < 3; i++) {
+      setTimeoutSafe(() => {
+        if (!pl.alive) return;
+        spawnShell(pl, m.x, m.y, t.ang + rand(-0.05, 0.05), {
+          spd: 560, dmg: 26, r: 5, bounces: 0, color: "#ffd05c",
+          brickDmg: 2, explosive: true,
+        });
+        AUDIO.shoot();
+      }, i * 90);
+    }
     AUDIO.powerUp();
-    GAME.showBanner("EXPLOSIVE SHOTS", "12 seconds", 1.2);
+    GAME.showBanner("EXPLOSIVE SHOTS", "Salvo away · 12 seconds", 1.2);
   },
 
-  /* Homing Missile — seeks the best target in front of the turret. */
+  /* Homing Missile — launched down the aim line and locked to whatever
+     is nearest that point, so the player chooses the victim instead of
+     the missile picking whatever happens to be closest to the tank. */
   fx_missile(pl){
+    const t = this.aimPoint(pl, 620, 60);
     const m = pl.muzzle();
     WORLD.missiles.push({
       x: m.x, y: m.y, owner: pl, team: pl.team,
-      vx: Math.cos(pl.tAngle) * 240, vy: Math.sin(pl.tAngle) * 240,
-      ang: pl.tAngle, life: 5.2, target: null, retargetT: 0, trailT: 0,
+      vx: Math.cos(t.ang) * 240, vy: Math.sin(t.ang) * 240,
+      ang: t.ang, life: 5.2,
+      // pre-locked on the aim point, and it holds that lock while it lives
+      target: this.targetNear(t.x, t.y, 220), locked: true,
+      aimX: t.x, aimY: t.y,
+      retargetT: 0.6, trailT: 0,
       speed: 430, turn: 3.4, radius: 6, dmg: 62, blast: 108,
     });
-    fxMuzzle(m.x, m.y, pl.tAngle, 1.3);
+    fxMuzzle(m.x, m.y, t.ang, 1.3);
     AUDIO.missile();
     CAM.addShake(0.12);
   },
 
-  /* Time Bomb — long fuse, very large yield; readable countdown. */
+  /* Time Bomb — lobbed onto the aim point rather than dropped underfoot,
+     so it becomes an area-denial tool aimed at a chokepoint or a
+     structure instead of something you have to run away from. */
   fx_timebomb(pl){
-    const x = pl.x + Math.cos(pl.angle) * 10, y = pl.y + Math.sin(pl.angle) * 10;
-    plantBomb(x, y, pl, { fuse: 3.4, radius: 196, dmg: 132, big: true });
-    fxRing(x, y, 40, "#c98aff", 0.5);
+    const t = this.aimPoint(pl, 480, 60);
+    plantBomb(t.x, t.y, pl, { fuse: 3.4, radius: 196, dmg: 132, big: true });
+    fxRing(t.x, t.y, 46, "#c98aff", 0.5);
+    fxTracer(pl.x, pl.y, t.x, t.y, "#c98aff");
     GAME.showBanner("TIME BOMB ARMED", "Clear the area", 1.4);
   },
 
   /* Atomic Strike — telegraphed, lands on the aim point (never on the
      player), so it reads as a called-in strike rather than a suicide. */
   fx_atomic(pl){
-    let tx, ty;
-    const ov = INPUT.aimOverride();
-    if (ov.has || INPUT.usingTouch || INPUT.usingPad) {
-      tx = pl.x + Math.cos(pl.tAngle) * 300;
-      ty = pl.y + Math.sin(pl.tAngle) * 300;
-    } else {
-      const wp = CAM.screenToWorld(INPUT.mouse.x, INPUT.mouse.y);
-      tx = wp.x; ty = wp.y;
-    }
-    // keep the blast off the player's own tile
-    const d = dist(tx, ty, pl.x, pl.y);
-    if (d < 150) {
-      const a = d > 1 ? Math.atan2(ty - pl.y, tx - pl.x) : pl.tAngle;
-      tx = pl.x + Math.cos(a) * 150; ty = pl.y + Math.sin(a) * 150;
-    }
-    WORLD.strikes.push({ x: tx, y: ty, t: 1.35, max: 1.35, radius: 300 });
+    const t = this.aimPoint(pl, 700, 170);
+    WORLD.strikes.push({ x: t.x, y: t.y, t: 1.35, max: 1.35, radius: 300 });
     AUDIO.bossAlert();
     GAME.showBanner("ATOMIC STRIKE INBOUND", "Stand clear", 1.6);
   },
 
-  /* Guardian Drone — orbiting escort that engages on its own. */
+  /* Guardian Drone — deployed onto the aim point and holding that ground,
+     hunting whatever is near it. It falls back to escorting the player
+     once the area is clear, so it is a tool for taking a position rather
+     than a passive bodyguard. */
   fx_drone(pl){
+    const t = this.aimPoint(pl, 520, 60);
     WORLD.drones.push({
       owner: pl, team: pl.team, ang: rand(0, TAU), orbit: 54,
       x: pl.x, y: pl.y, life: 16, fireT: 0, tAngle: 0,
+      postX: t.x, postY: t.y, postT: 9,
     });
-    fxRing(pl.x, pl.y, 70, "#7be27a", 0.45);
+    fxRing(t.x, t.y, 70, "#7be27a", 0.45);
+    fxTracer(pl.x, pl.y, t.x, t.y, "#7be27a");
     AUDIO.powerUp();
-    GAME.showBanner("GUARDIAN DRONE", "16 seconds", 1.2);
+    GAME.showBanner("GUARDIAN DRONE", "Holding your mark · 16 seconds", 1.2);
   },
 
   /* ---- input polling (keyboard / gamepad / touch) ---- */
@@ -225,9 +316,12 @@ function updateMissiles(dt){
     };
     if (m.life <= 0) { detonate(); continue; }
 
-    // retarget periodically: nearest visible hostile wins
+    /* The lock the player set at launch is kept while the target lives.
+       Only once it dies (or there was nothing at the aim point) does the
+       missile fall back to hunting the nearest hostile — so a missile
+       aimed at a specific tank goes to that tank. */
     m.retargetT -= dt;
-    if (m.retargetT <= 0 || !m.target || !m.target.alive) {
+    if (m.retargetT <= 0 && (!m.target || !m.target.alive)) {
       m.retargetT = 0.25;
       let best = null, bestD = Infinity;
       for (const e of WORLD.enemies) {
@@ -237,10 +331,11 @@ function updateMissiles(dt){
       }
       m.target = best;
     }
-    if (m.target) {
-      const want = Math.atan2(m.target.y - m.y, m.target.x - m.x);
-      m.ang = angMove(m.ang, want, m.turn * dt);
-    }
+    // with no target at all, fly to the mark the player set
+    let wx = null, wy = null;
+    if (m.target && m.target.alive) { wx = m.target.x; wy = m.target.y; }
+    else if (m.aimX !== undefined && dist2(m.x, m.y, m.aimX, m.aimY) > 24 * 24) { wx = m.aimX; wy = m.aimY; }
+    if (wx !== null) m.ang = angMove(m.ang, Math.atan2(wy - m.y, wx - m.x), m.turn * dt);
     const sp = Math.min(m.speed, Math.hypot(m.vx, m.vy) + 620 * dt);
     m.vx = Math.cos(m.ang) * sp; m.vy = Math.sin(m.ang) * sp;
 
@@ -291,9 +386,23 @@ function updateDrones(dt){
       WORLD.drones.splice(i, 1);
       continue;
     }
+    /* The drone holds the mark the player deployed it on, orbiting that
+       spot and covering it. Once the post expires — or the ground it was
+       sent to is clear — it falls back to escorting the player. */
     d.ang += dt * 2.1;
-    d.x = pl.x + Math.cos(d.ang) * d.orbit;
-    d.y = pl.y + Math.sin(d.ang) * d.orbit;
+    if (d.postT > 0) {
+      d.postT -= dt;
+      const stillWork = WORLD.enemies.some(e =>
+        e.alive && dist2(e.x, e.y, d.postX, d.postY) < 340 * 340);
+      if (!stillWork) d.postT = Math.min(d.postT, 1.2);
+    }
+    const anchorX = d.postT > 0 ? d.postX : pl.x;
+    const anchorY = d.postT > 0 ? d.postY : pl.y;
+    // ease toward the anchor so a long redeploy reads as flight, not a jump
+    const tx = anchorX + Math.cos(d.ang) * d.orbit;
+    const ty = anchorY + Math.sin(d.ang) * d.orbit;
+    d.x = expLerp(d.x, tx, 4.5, dt);
+    d.y = expLerp(d.y, ty, 4.5, dt);
     // engage the closest hostile in line of sight
     let best = null, bestD = 520 * 520;
     for (const e of WORLD.enemies) {

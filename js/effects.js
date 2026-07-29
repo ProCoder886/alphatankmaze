@@ -202,6 +202,21 @@ function fxDebris(x, y, n, color){
 function fxRing(x, y, size, color, life){
   PARTS.spawn({ x, y, type: "ring", size, life: life || 0.4, color: color || "#ffffff", vip: true });
 }
+/* A brief trail from the tank to the point a targeted superpower was
+   aimed at, so the player can see where their power was sent. */
+function fxTracer(x0, y0, x1, y1, color){
+  const d = Math.hypot(x1 - x0, y1 - y0);
+  const n = clamp(Math.round(d / 22), 2, 26);
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    PARTS.spawn({
+      x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t,
+      type: "trail", size: 5, size2: 0.5,
+      life: 0.18 + t * 0.22, color: color || "#8ffff6", layer: 1, vip: true,
+    });
+  }
+  fxRing(x1, y1, 26, color || "#8ffff6", 0.3);
+}
 function fxText(x, y, text, color, size){
   PARTS.spawn({ x, y, vy: -46, type: "text", text, color: color || "#ffffff", size: size || 15, life: 0.9, vip: true, layer: 1 });
 }

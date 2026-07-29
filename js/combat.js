@@ -93,9 +93,9 @@ function explode(x, y, opts){
      a defender's own bombs must never chip their objective. */
   for (const b of WORLD.bases) {
     if (!b.alive || (owner && owner.team === b.team)) continue;
-    const d = dist(x, y, b.x, b.y);
-    if (d < radius + b.radius)
-      damageBase(b, dmg * clamp(1 - d / (radius + b.radius), 0.15, 1) * BASE_SIEGE_MUL, owner);
+    const d = baseDist(b, x, y);
+    if (d < radius)
+      damageBase(b, dmg * clamp(1 - d / radius, 0.15, 1) * BASE_SIEGE_MUL, owner);
   }
   // chain: mines
   for (const m of WORLD.mines) {
@@ -211,7 +211,7 @@ function updateShells(dt){
       // shells hit the opposing headquarters
       if (!dead) for (const b of WORLD.bases) {
         if (!b.alive || b.team === s.team) continue;
-        if (dist2(s.x, s.y, b.x, b.y) < (b.radius + s.r) ** 2) {
+        if (baseDist(b, s.x, s.y) < s.r) {
           damageBase(b, s.dmg, s.owner);
           if (s.owner === WORLD.player) GAME.stats.hits++;
           killShell(s, i); dead = true; break;
@@ -423,7 +423,8 @@ const EMPLACEMENTS = {
 };
 function makeEmplacement(kind, x, y){
   const D = EMPLACEMENTS[kind];
-  return { kind, def: D, x, y, r: D.r, hp: D.hp, maxHp: D.hp,
+  return { kind, def: D, x, y, r: D.r,
+           hp: Math.round(D.hp * DIRECTOR.hpMul()), maxHp: Math.round(D.hp * DIRECTOR.hpMul()),
            reloadT: rand(0, D.reload || 1), ang: rand(0, TAU), alive: true, flash: 0 };
 }
 function updateEmplacements(dt){
@@ -455,7 +456,7 @@ function updateEmplacements(dt){
     e.ang = angMove(e.ang, Math.atan2(pl.y - e.y, pl.x - e.x), 2.4 * dt);
     e.reloadT -= dt;
     if (e.reloadT <= 0 && Math.abs(angDiff(e.ang, Math.atan2(pl.y - e.y, pl.x - e.x))) < 0.18) {
-      e.reloadT = e.def.reload;
+      e.reloadT = e.def.reload * DIRECTOR.reloadMul();
       spawnShell({ team: "enemy" }, e.x + Math.cos(e.ang) * e.r, e.y + Math.sin(e.ang) * e.r, e.ang,
         { spd: 400, dmg: e.kind === "bunker" ? 14 : 10, r: 4, bounces: 0, color: e.def.color, brickDmg: 1 });
       fxMuzzle(e.x + Math.cos(e.ang) * e.r, e.y + Math.sin(e.ang) * e.r, e.ang, 0.8);
@@ -669,11 +670,22 @@ const BASE_DEFS = {
   player: { name: "ALLIED HQ",  color: "#2f6fe0", lit: "#7ea8ff", dark: "#12294f", hp: 700 },
   enemy:  { name: "HOSTILE HQ", color: "#2fa64f", lit: "#7be27a", dark: "#123d1f", hp: 700 },
 };
+/* Distance from a point to the keep's square footprint — 0 inside it.
+   The structure is drawn as a square, so its corners reach further than
+   any single radius would; hit tests measure against the box instead so
+   a shell that visibly strikes a corner actually connects. */
+function baseDist(b, x, y){
+  const dx = Math.max(Math.abs(x - b.x) - b.half, 0);
+  const dy = Math.max(Math.abs(y - b.y) - b.half, 0);
+  return Math.hypot(dx, dy);
+}
 function makeBase(team, x, y){
   const D = BASE_DEFS[team];
+  const R = CFG.TILE * 1.55;
   return {
     team, def: D, x, y,
-    radius: CFG.TILE * 1.55,          // a genuinely large structure
+    radius: R,                        // outer bound, used by AI spacing
+    half: R * 0.82,                   // half-width of the square keep
     hp: D.hp, maxHp: D.hp,
     alive: true, flash: 0, spin: 0, pulse: rand(0, TAU),
     vel: { x: 0, y: 0 },              // AI lead-targeting reads this
@@ -710,39 +722,54 @@ function drawBases(c, time){
     // ground shadow
     c.fillStyle = "rgba(0,0,0,0.4)";
     c.beginPath(); c.ellipse(3, 6, R * 1.05, R * 0.9, 0, 0, TAU); c.fill();
+    const S = R * 0.82;                    // half-width of the square keep
     if (!b.alive) {
       // burnt-out husk
       c.fillStyle = "rgba(24,22,20,0.92)";
-      c.beginPath(); c.arc(0, 0, R * 0.86, 0, TAU); c.fill();
+      c.fillRect(-S, -S, S * 2, S * 2);
       c.strokeStyle = "rgba(90,80,70,0.7)"; c.lineWidth = 3;
-      c.beginPath(); c.arc(0, 0, R * 0.86, 0, TAU); c.stroke();
+      c.strokeRect(-S, -S, S * 2, S * 2);
       c.restore();
       continue;
     }
-    // rotating outer ring of armour segments
-    c.rotate(b.spin);
-    for (let i = 0; i < 8; i++) {
+    // corner bastions, one at each corner of the keep
+    for (let i = 0; i < 4; i++) {
       c.save();
-      c.rotate(i * TAU / 8);
-      c.fillStyle = i % 2 ? D.dark : D.color;
-      c.fillRect(R * 0.78, -R * 0.20, R * 0.30, R * 0.40);
+      c.rotate(i * Math.PI / 2);
+      c.fillStyle = D.dark;
+      c.fillRect(S - R * 0.10, -S - R * 0.10, R * 0.34, R * 0.34);
+      c.fillStyle = D.color;
+      c.fillRect(S - R * 0.05, -S - R * 0.05, R * 0.24, R * 0.24);
       c.restore();
     }
-    c.rotate(-b.spin);
-    // hull plates
+    // hull plates — square keep with a chamfered inner block
     c.fillStyle = D.dark;
-    c.beginPath(); c.arc(0, 0, R * 0.80, 0, TAU); c.fill();
+    c.fillRect(-S, -S, S * 2, S * 2);
     c.fillStyle = D.color;
-    c.beginPath(); c.arc(0, 0, R * 0.66, 0, TAU); c.fill();
-    // panel seams
-    c.strokeStyle = "rgba(0,0,0,0.35)"; c.lineWidth = 2;
-    for (let i = 0; i < 6; i++) {
-      const a = i * TAU / 6 + b.spin * 0.4;
+    const S2 = S * 0.80;
+    c.fillRect(-S2, -S2, S2 * 2, S2 * 2);
+    // rotating containment ring inside the keep, the one moving part
+    c.save();
+    c.rotate(b.spin);
+    c.strokeStyle = "rgba(0,0,0,0.3)"; c.lineWidth = 3;
+    c.beginPath(); c.arc(0, 0, S * 0.56, 0, TAU); c.stroke();
+    for (let i = 0; i < 4; i++) {
+      const a = i * TAU / 4;
       c.beginPath();
-      c.moveTo(Math.cos(a) * R * 0.28, Math.sin(a) * R * 0.28);
-      c.lineTo(Math.cos(a) * R * 0.78, Math.sin(a) * R * 0.78);
+      c.moveTo(Math.cos(a) * S * 0.30, Math.sin(a) * S * 0.30);
+      c.lineTo(Math.cos(a) * S * 0.56, Math.sin(a) * S * 0.56);
       c.stroke();
     }
+    c.restore();
+    // panel seams along the walls
+    c.strokeStyle = "rgba(0,0,0,0.35)"; c.lineWidth = 2;
+    c.beginPath();
+    for (let i = 1; i < 4; i++) {
+      const t = -S2 + (S2 * 2) * (i / 4);
+      c.moveTo(t, -S2); c.lineTo(t, S2);
+      c.moveTo(-S2, t); c.lineTo(S2, t);
+    }
+    c.stroke();
     // reactor core: brightness tracks remaining integrity
     const beat = 0.72 + 0.28 * Math.sin(b.pulse) * pct;
     const g = c.createRadialGradient(0, 0, 2, 0, 0, R * 0.44);
@@ -760,7 +787,7 @@ function drawBases(c, time){
     if (b.flash > 0) {
       c.globalAlpha = b.flash / 0.14 * 0.7;
       c.fillStyle = "#ffffff";
-      c.beginPath(); c.arc(0, 0, R * 0.82, 0, TAU); c.fill();
+      c.fillRect(-S, -S, S * 2, S * 2);
       c.globalAlpha = 1;
     }
     // damage cracks appear as integrity falls

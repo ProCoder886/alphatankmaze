@@ -8,6 +8,26 @@
    Tracks a live skill estimate from the player's performance and
    tunes enemy aim, speed, HP, spawn budgets and wave modifiers.
    ================================================================ */
+/* Difficulty tiers. The skill value drives the shared 0..1 curves below;
+   the multipliers on top are what let a tier push past what that curve
+   alone can reach, which is how Master and Legendary get harder than
+   Veteran rather than just pinning the curve at its old maximum.
+     fire   — reload multiplier, so lower is a faster rate of fire
+     aim    — spread multiplier, lower is more accurate
+     react  — sniper lock and boss attack cadence, lower is quicker
+     drops  — pickup rate, lower is stingier */
+const DIFFS = {
+  easy:      { skill: 0.18, fire: 1.10, speed: 0.96, hp: 0.92, aim: 1.15, react: 1.15, budget: 0.88, drops: 1.20 },
+  normal:    { skill: 0.50, fire: 0.94, speed: 1.02, hp: 1.05, aim: 0.94, react: 1.00, budget: 1.06, drops: 1.00 },
+  hard:      { skill: 0.85, fire: 0.82, speed: 1.08, hp: 1.20, aim: 0.82, react: 0.88, budget: 1.20, drops: 0.88 },
+  master:    { skill: 1.00, fire: 0.68, speed: 1.16, hp: 1.42, aim: 0.66, react: 0.74, budget: 1.42, drops: 0.76 },
+  legendary: { skill: 1.00, fire: 0.55, speed: 1.26, hp: 1.70, aim: 0.50, react: 0.60, budget: 1.70, drops: 0.64 },
+};
+const DIFF_ORDER = ["adaptive", "easy", "normal", "hard", "master", "legendary"];
+const DIFF_NAMES = {
+  adaptive: "Adaptive (AI Director)", easy: "Recruit", normal: "Soldier",
+  hard: "Veteran", master: "Master", legendary: "Legendary",
+};
 const DIRECTOR = {
   skill: 0.45, // 0 (struggling) .. 1 (dominating)
   reset(){ this.skill = 0.45; },
@@ -16,23 +36,27 @@ const DIRECTOR = {
   onPlayerHit(dmg){ this.nudge(-dmg * 0.0009); },
   onPlayerDeath(){ this.nudge(-0.16); },
   onWaveClear(fast){ this.nudge(fast ? 0.03 : 0.008); },
-  _fixed(){
-    switch (SETTINGS.difficulty) {
-      case "easy": return 0.18;
-      case "normal": return 0.5;
-      case "hard": return 0.85;
-      default: return null;
-    }
-  },
+  /* The adaptive setting has no tier of its own: it rides the live skill
+     estimate and takes the neutral multipliers. */
+  tier(){ return DIFFS[SETTINGS.difficulty] || null; },
+  mul(k){ const t = this.tier(); return t ? t[k] : 1; },
+  _fixed(){ const t = this.tier(); return t ? t.skill : null; },
   eff(){ const f = this._fixed(); return f === null ? this.skill : f; },
-  aimErrMul(){ return lerp(1.8, 0.55, this.eff()); },
-  leadMul(){ return lerp(0.5, 1.15, this.eff()); },
-  speedMul(){ return lerp(0.88, 1.12, this.eff()); },
-  hpMul(){ return lerp(0.85, 1.18, this.eff()); },
-  lockMul(){ return lerp(1.5, 0.8, this.eff()); },
-  dropChance(){ return lerp(0.36, 0.2, this.eff()); },
+  /* Every sector is meant to be harder than the one before it, on top of
+     whatever the tier already asks for. */
+  levelRamp(){ return 1 + (GAME.level - 1) * 0.05; },
+  aimErrMul(){ return lerp(1.55, 0.42, this.eff()) * this.mul("aim") / this.levelRamp(); },
+  leadMul(){ return lerp(0.55, 1.25, this.eff()) * Math.min(1.35, this.levelRamp()); },
+  speedMul(){ return lerp(0.9, 1.16, this.eff()) * this.mul("speed") * Math.min(1.22, this.levelRamp()); },
+  hpMul(){ return lerp(0.88, 1.25, this.eff()) * this.mul("hp"); },
+  /* Rate of fire: hostile reload is scaled down by tier and by sector. */
+  reloadMul(){ return clamp(lerp(1.12, 0.86, this.eff()) * this.mul("fire") / this.levelRamp(), 0.32, 1.3); },
+  lockMul(){ return lerp(1.35, 0.7, this.eff()) * this.mul("react"); },
+  /* Boss attack cadence and enemy special-ability timers. */
+  aggroMul(){ return clamp(lerp(1.2, 0.82, this.eff()) * this.mul("react"), 0.4, 1.3); },
+  dropChance(){ return lerp(0.34, 0.17, this.eff()) * this.mul("drops"); },
   budget(level, wave){
-    return Math.round((11 + level * 5.5 + wave * 4) * lerp(0.72, 1.25, this.eff()));
+    return Math.round((13 + level * 7 + wave * 4.6) * lerp(0.75, 1.3, this.eff()) * this.mul("budget"));
   },
   compose(level, budget){
     const unlocked = ["grunt"];
@@ -47,10 +71,21 @@ const DIRECTOR = {
     if (level >= 7) unlocked.push("mbt");
     const out = [];
     let guard = 0;
-    while (budget > 0 && out.length < 12 && guard++ < 60) {
+    /* The concurrent cap grows with the sector rather than sitting flat.
+       The higher tiers buy a lot of budget, and spending all of it at
+       once in sector 1 is a wall rather than a difficulty curve — and it
+       costs frames on a phone for no gain. Early sectors stay readable;
+       later ones get genuinely crowded. */
+    const cap = clamp(6 + level, 6, 14);
+    while (budget > 0 && out.length < cap && guard++ < 60) {
       const affordable = unlocked.filter(t => ENEMY_TYPES[t].cost <= budget);
       if (!affordable.length) break;
-      const t = pick(affordable);
+      /* With the count capped, a bigger budget has to buy heavier units
+         rather than go unspent — that is what makes a wave on Master feel
+         different from the same seven tanks on Soldier. */
+      const perSlot = budget / Math.max(1, cap - out.length);
+      const heavy = affordable.filter(t => ENEMY_TYPES[t].cost >= perSlot * 0.65);
+      const t = pick(heavy.length ? heavy : affordable);
       out.push(t);
       budget -= ENEMY_TYPES[t].cost;
     }
@@ -72,7 +107,7 @@ const DIRECTOR = {
   ],
   rollModifier(level, wave){
     if (wave < 2 || level < 2) return null;
-    if (!chance(0.4 + this.eff() * 0.2)) return null;
+    if (!chance(0.45 + this.eff() * 0.3)) return null;
     return pick(this.MODS);
   },
 };
@@ -315,10 +350,12 @@ const MODES = {
   training:   { id: "training",   name: "TRAINING",     sub: "Safe practice with every power",
                 bosses: false, advance: true,  invuln: true, allPowers: true, noFail: true },
   /* --- team modes: both sides field tanks on an ordinary arena --- */
+  /* Both team modes advance: clearing the objective opens a Proceed
+     button onto a freshly generated arena rather than ending the run. */
   team:       { id: "team",       name: "TEAM BATTLE",  sub: "Squad vs squad · last team standing",
-                bosses: false, advance: false, single: true, teams: true, squad: true },
+                bosses: false, advance: true, teams: true, squad: true },
   basewar:    { id: "basewar",    name: "BASE ASSAULT", sub: "Destroy the hostile HQ · defend your own",
-                bosses: false, advance: false, single: true, teams: true, squad: true,
+                bosses: false, advance: true, teams: true, squad: true,
                 bases: true, respawn: true },
 };
 const MODE_ORDER = ["campaign", "survival", "timeattack", "quick",
@@ -411,6 +448,7 @@ const GAME = {
     this.waveState = M.noEnemies ? "explore" : (M.teams ? "battle" : "prep");
     this.prepT = 2.4;
     this.modifier = null;
+    this.teamWinT = 0;
     if (M.teams) this.deployTeams(M);
     this.showBanner((M.teams ? "" : this.def().survival ? "ARENA — " : "SECTOR " + level + " — ") + data.theme.name,
       data.shape.name + " · " + data.theme.sub, 2.6);
@@ -856,7 +894,9 @@ const GAME = {
           this.teamWinT -= dt;
           if (this.teamWinT <= 0) {
             this.teamWinT = 0;
-            this.runComplete(M.bases ? "HOSTILE HQ DESTROYED" : "HOSTILE SQUAD ELIMINATED");
+            // objective cleared: the Proceed screen, then a fresh arena
+            this.waveState = "done";
+            this.levelComplete();
           }
           break;
         }
@@ -934,13 +974,23 @@ const GAME = {
     SAVE.persist();
     this.bonusClaimed = false;
     const acc = this.stats.shots ? Math.round(100 * this.stats.hits / this.stats.shots) : 0;
-    document.getElementById("lc-title").textContent = "Sector " + this.level + " Cleared";
+    /* The team modes clear an objective rather than a sector, so the
+       screen names what was actually achieved and the button says
+       Proceed — it opens the next stage on a freshly generated map. */
+    document.getElementById("lc-title").textContent =
+      M.bases ? "Hostile HQ Destroyed"
+      : M.teams ? "Hostile Squad Eliminated"
+      : "Sector " + this.level + " Cleared";
+    const nextBtn = document.querySelector('#scr-level [data-act="next"]');
+    if (nextBtn) nextBtn.innerHTML = (M.teams ? "Proceed" : "Advance") + " &nbsp;&#9654;";
     document.getElementById("lc-stats").innerHTML =
       statRow("Score", fmt(this.score)) +
+      (M.teams ? statRow("Stage", this.level) + statRow("Squad", this.squadSize() + " v " + this.squadSize()) : "") +
       statRow("Kills", this.stats.kills) +
       statRow("Accuracy", acc + "%") +
       statRow("Best combo", "x" + Math.max(1, this.combo.best)) +
-      statRow("Bricks razed", this.stats.bricks) +
+      (M.teams ? statRow("Squad left", WORLD.allies.filter(a => a.alive).length + " / " + this.squadSize())
+               : statRow("Bricks razed", this.stats.bricks)) +
       statRow("Time", padTime(this.stats.time));
     showScreen("scr-level");
     INPUT.setPointerLock(false);

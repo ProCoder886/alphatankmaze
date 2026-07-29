@@ -105,8 +105,8 @@ const SAVE = {
   data: null,
   defaults(){
     return {
-      v: 1,
-      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "adaptive", location: "random", teamSize: 3 },
+      v: 2,
+      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "master", location: "random", teamSize: 3 },
       scores: [],
       /* salvage = the non-ad currency players can spend on the same
          bonuses the rewarded ads grant (SDK requires an alternative).
@@ -125,6 +125,13 @@ const SAVE = {
         d.settings = Object.assign(d.settings, p.settings || {});
         d.stats = Object.assign(d.stats, p.stats || {});
         d.scores = Array.isArray(p.scores) ? p.scores : [];
+        d.lastMode = p.lastMode;
+        /* v2 raised the baseline difficulty and made Master the default.
+           Saves written before that carried the old default, so they are
+           moved onto the new one once; anything the player had actually
+           chosen for themselves is left alone. */
+        if ((p.v | 0) < 2 && (!p.settings || p.settings.difficulty === "adaptive"))
+          d.settings.difficulty = "master";
       }
       this.data = d;
     } catch (e) { this.data = this.defaults(); }

@@ -784,6 +784,12 @@ function renderLocations(){
     THEMES.map((t, i) => '<option value="' + i + '">' + t.name + "</option>").join("");
   el.value = SETTINGS.location === undefined ? "random" : String(SETTINGS.location);
 }
+function renderDifficulties(){
+  const el = document.getElementById("set-diff");
+  if (!el) return;
+  el.innerHTML = DIFF_ORDER.map(id => '<option value="' + id + '">' + DIFF_NAMES[id] + "</option>").join("");
+  el.value = DIFF_ORDER.includes(SETTINGS.difficulty) ? SETTINGS.difficulty : "master";
+}
 /* Squad size: how many tanks each side fields in the two team modes.
    Both sides always get the same number, so the match stays a mirror. */
 function renderSquadSizes(){
@@ -1101,6 +1107,7 @@ window.addEventListener("load", async () => {
   renderModes();
   renderLocations();
   renderSquadSizes();
+  renderDifficulties();
   refreshModeLabel();             // reveals the squad control if a team mode is saved
   renderOffer("offer-main", "supply");
   CG.showBanner("banner-menu");

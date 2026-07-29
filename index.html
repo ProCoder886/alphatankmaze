@@ -97,13 +97,16 @@
         <div class="k">D-pad &bull; B &bull; Y &bull; R3</div><div class="v">Superpowers 1&ndash;7</div>
         <div class="k">Tap a power circle</div><div class="v">Fire that superpower (touch)</div>
         <div class="intel-h">Superpowers — keys 1 to 7</div>
-        <div class="k" style="color:#ff9a3c">1 &nbsp; BOOSTER BOMB</div><div class="v">Ring of charges around your tank.</div>
-        <div class="k" style="color:#7ef0ff">2 &nbsp; FREEZE STRIKE</div><div class="v">Flash-freezes every hostile in range.</div>
-        <div class="k" style="color:#ffd05c">3 &nbsp; EXPLOSIVE SHOTS</div><div class="v">Your shells detonate on impact for 12s.</div>
-        <div class="k" style="color:#ff7a45">4 &nbsp; HOMING MISSILE</div><div class="v">Seeks the nearest hostile on its own.</div>
-        <div class="k" style="color:#c98aff">5 &nbsp; TIME BOMB</div><div class="v">Long fuse, very large blast radius.</div>
-        <div class="k" style="color:#ff4d5e">6 &nbsp; ATOMIC STRIKE</div><div class="v">Calls a strike down on your aim point.</div>
-        <div class="k" style="color:#7be27a">7 &nbsp; GUARDIAN DRONE</div><div class="v">Escort drone fights beside you for 16s.</div>
+        <div class="tipline"><b>Every superpower is aimed.</b> They land where your crosshair is, not on
+        your own tank — put the cursor on a hostile, a group or a structure and fire. On touch and
+        gamepad the turret direction is the aim line. A power aimed through a wall detonates against it.</div>
+        <div class="k" style="color:#ff9a3c">1 &nbsp; BOOSTER BOMB</div><div class="v">Cluster salvo lobbed onto your mark — a centre charge plus a ring that cascades outward.</div>
+        <div class="k" style="color:#7ef0ff">2 &nbsp; FREEZE STRIKE</div><div class="v">Cryo burst centred on your mark. Freezes tanks and seizes up emplacements caught in it.</div>
+        <div class="k" style="color:#ffd05c">3 &nbsp; EXPLOSIVE SHOTS</div><div class="v">Instant three-round explosive burst at your mark, then your shells detonate on impact for 12s.</div>
+        <div class="k" style="color:#ff7a45">4 &nbsp; HOMING MISSILE</div><div class="v">Locks whatever is nearest your mark and holds that lock. Flies to the mark if nothing is there.</div>
+        <div class="k" style="color:#c98aff">5 &nbsp; TIME BOMB</div><div class="v">Lobbed onto your mark. Long fuse, very large yield — a chokepoint and siege tool.</div>
+        <div class="k" style="color:#ff4d5e">6 &nbsp; ATOMIC STRIKE</div><div class="v">Calls a devastating strike down on your mark. Never lands on your own tile.</div>
+        <div class="k" style="color:#7be27a">7 &nbsp; GUARDIAN DRONE</div><div class="v">Deploys to your mark and holds that ground, then falls back to escorting you. 16s.</div>
         <div class="tipline">Charges are earned by fighting — kill streaks, cleared waves and cleared
         sectors all restock them. The rack in the top-right corner shows every power, its key, its
         remaining charges and its cooldown.</div>
@@ -164,12 +167,9 @@
             <option value="low">Low</option>
           </select>
           <label for="set-diff">Difficulty</label>
-          <select id="set-diff">
-            <option value="adaptive">Adaptive (AI Director)</option>
-            <option value="easy">Recruit</option>
-            <option value="normal">Soldier</option>
-            <option value="hard">Veteran</option>
-          </select>
+          <!-- Options are filled from DIFF_ORDER so the tier table stays
+               the single source of truth. -->
+          <select id="set-diff"></select>
           <label>CRT Scanlines</label>
           <label class="tog"><input type="checkbox" id="set-crt"><span class="sw"></span></label>
           <label>FPS Counter</label>
