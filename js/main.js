@@ -13,6 +13,53 @@ function chamferBar(c, x, y, w, h){
   c.lineTo(x + w - ch, y + h); c.lineTo(x, y + h); c.lineTo(x, y + ch);
   c.closePath();
 }
+/* Squad strength and, in Base Assault, the two headquarters. Drawn under
+   the centre column so it reads as the objective panel it is. */
+function drawTeamHud(c, time, y0, MD){
+  const allies = WORLD.allies.filter(a => a.alive).length + (WORLD.player && WORLD.player.alive ? 1 : 0);
+  const foes = WORLD.enemies.filter(e => e.alive).length;
+  const pipW = Math.round(9 * UIS), pipH = Math.round(9 * UIS), gap = Math.round(4 * UIS);
+  const cap = GAME.squadSize() + 1;
+  const rowW = cap * (pipW + gap);
+  const drawPips = (n, total, x, col, dir) => {
+    for (let i = 0; i < total; i++) {
+      c.fillStyle = i < n ? col : "rgba(120,140,150,0.22)";
+      c.fillRect(x + dir * i * (pipW + gap) - (dir < 0 ? pipW : 0), y0 - pipH, pipW, pipH);
+    }
+  };
+  const mid = Math.round(26 * UIS);
+  c.textAlign = "right";
+  c.font = "700 " + FS(10) + "px Bahnschrift, 'Segoe UI', sans-serif";
+  c.fillStyle = "rgba(126,200,255,0.9)";
+  c.fillText("ALLIES", W / 2 - mid - rowW - Math.round(6 * UIS), y0 - Math.round(1 * UIS));
+  drawPips(allies, cap, W / 2 - mid, "#7ec8ff", -1);
+  c.textAlign = "left";
+  c.fillStyle = "rgba(255,122,69,0.9)";
+  c.fillText("HOSTILES", W / 2 + mid + rowW + Math.round(6 * UIS), y0 - Math.round(1 * UIS));
+  drawPips(foes, cap - 1, W / 2 + mid, "#ff7a45", 1);
+  c.textAlign = "center";
+  if (!MD.bases) return y0 + FS(14);      // clear of the pip row
+  // headquarters integrity, allied on the left, hostile on the right
+  const bw = Math.min(150 * UIS, W * 0.19), bh = Math.round(9 * UIS);
+  const by = y0 + Math.round(9 * UIS);
+  for (const b of WORLD.bases) {
+    const mine = b.team === "player";
+    const bx = mine ? W / 2 - mid - bw : W / 2 + mid;
+    const pct = clamp(b.hp / b.maxHp, 0, 1);
+    c.fillStyle = "rgba(8,12,18,0.65)";
+    c.fillRect(bx, by, bw, bh);
+    c.fillStyle = b.alive ? (pct > 0.5 ? b.def.lit : pct > 0.22 ? "#ffd05c" : "#ff4d5e") : "rgba(90,80,70,0.8)";
+    c.fillRect(bx + 1, by + 1, (bw - 2) * pct, bh - 2);
+    c.strokeStyle = "rgba(120,160,180,0.4)"; c.lineWidth = 1;
+    c.strokeRect(bx, by, bw, bh);
+    c.fillStyle = "rgba(223,233,238,0.8)";
+    c.font = "700 " + FS(8) + "px Consolas, monospace";
+    c.textAlign = mine ? "left" : "right";
+    c.fillText(mine ? "YOUR HQ" : "HOSTILE HQ", mine ? bx + 4 * UIS : bx + bw - 4 * UIS, by + bh + FS(9));
+  }
+  c.textAlign = "center";
+  return by + bh + FS(23);      // clear of the HQ labels
+}
 function drawHUD(c, time){
   const pl = WORLD.player;
   if (!pl) return;
@@ -147,18 +194,25 @@ function drawHUD(c, time){
   c.font = "700 " + FS(11) + "px Bahnschrift, 'Segoe UI', sans-serif";
   const MD = GAME.def();
   let waveTxt = MD.name + "  ·  ";
-  if (MD.noEnemies) waveTxt += "SECTOR " + GAME.level + "  ·  TARGETS " + GAME.barrelsLeft;
+  if (MD.teams) waveTxt += WORLD.theme.name + "  ·  " + GAME.squadSize() + " v " + GAME.squadSize();
+  else if (MD.noEnemies) waveTxt += "SECTOR " + GAME.level + "  ·  TARGETS " + GAME.barrelsLeft;
   else if (MD.survival) waveTxt += "WAVE " + Math.max(1, GAME.wave);
   else waveTxt += "SECTOR " + GAME.level + "  ·  WAVE " + Math.max(1, GAME.wave) + "/" + GAME.wavesTotal;
   if (GAME.modifier && GAME.waveState === "active") waveTxt += "  ·  " + GAME.modifier.label;
   c.fillText(waveTxt, W / 2, padT + FS(GAME.combo.n > 1 ? 82 : 58));
+  /* Everything below the mode line stacks: the team panel claims its own
+     height and hands back the next free row, so the squad pips and HQ
+     bars never sit on top of the emplacement counter. */
+  let infoY = padT + FS(GAME.combo.n > 1 ? 96 : 72);
+  if (MD.teams) infoY = drawTeamHud(c, time, infoY, MD);
   // live emplacement counter
   if (GAME.obstaclesTotal > 0) {
     const left = WORLD.emplacements.length;
     c.fillStyle = left ? "rgba(255,176,58,0.9)" : "rgba(123,226,122,0.95)";
     c.font = "700 " + FS(10) + "px Consolas, monospace";
     c.fillText("EMPLACEMENTS  " + (GAME.obstaclesTotal - left) + " / " + GAME.obstaclesTotal + " DESTROYED",
-      W / 2, padT + FS(GAME.combo.n > 1 ? 96 : 72));
+      W / 2, infoY);
+    infoY += FS(14);
   }
   // Time Attack clock, red and pulsing in the last ten seconds
   if (MD.timeLimit) {
@@ -444,8 +498,10 @@ function render(time){
   drawBarrels(ctx);
   drawPickups(ctx, time);
   drawEmplacements(ctx, time);
+  drawBases(ctx, time);
   drawStrikes(ctx, time);
   for (const e of WORLD.enemies) e.draw(ctx, time);
+  for (const a of WORLD.allies) a.draw(ctx, time);
   if (WORLD.player) WORLD.player.draw(ctx, time);
   drawDrones(ctx, time);
   drawShells(ctx);
@@ -728,14 +784,29 @@ function renderLocations(){
     THEMES.map((t, i) => '<option value="' + i + '">' + t.name + "</option>").join("");
   el.value = SETTINGS.location === undefined ? "random" : String(SETTINGS.location);
 }
+/* Squad size: how many tanks each side fields in the two team modes.
+   Both sides always get the same number, so the match stays a mirror. */
+function renderSquadSizes(){
+  const el = document.getElementById("set-teamsize");
+  if (!el) return;
+  let html = "";
+  for (let n = CFG.SQUAD_MIN; n <= CFG.SQUAD_MAX; n++)
+    html += '<option value="' + n + '">' + n + " v " + n + "</option>";
+  el.innerHTML = html;
+  el.value = String(clamp(SETTINGS.teamSize | 0, CFG.SQUAD_MIN, CFG.SQUAD_MAX));
+}
 function refreshModeLabel(){
   const el = document.getElementById("main-mode");
+  const M = GAME.def();
+  // the squad-size control only belongs to the team modes
+  document.querySelectorAll(".team-only").forEach(n => { n.hidden = !M.squad; });
   if (!el) return;
   const loc = SETTINGS.location;
   const locName = loc === "random" ? "RANDOM"
     : loc === "rotate" ? "ROTATING"
     : (THEMES[+loc] ? THEMES[+loc].name : "RANDOM");
-  el.textContent = "OPERATION — " + GAME.def().name + "   ·   ZONE — " + locName;
+  el.textContent = "OPERATION — " + M.name + "   ·   ZONE — " + locName +
+    (M.squad ? "   ·   " + GAME.squadSize() + " v " + GAME.squadSize() : "");
 }
 
 function syncSettingsUI(){
@@ -837,6 +908,12 @@ function bindUI(){
   });
   document.getElementById("set-location").addEventListener("change", (e) => {
     SETTINGS.location = e.target.value;
+    SAVE.persist();
+    refreshModeLabel();
+  });
+  document.getElementById("set-teamsize").addEventListener("change", (e) => {
+    SETTINGS.teamSize = clamp(+e.target.value || CFG.SQUAD_MIN, CFG.SQUAD_MIN, CFG.SQUAD_MAX);
+    AUDIO.uiSelect();
     SAVE.persist();
     refreshModeLabel();
   });
@@ -1023,6 +1100,8 @@ window.addEventListener("load", async () => {
   refreshModeLabel();
   renderModes();
   renderLocations();
+  renderSquadSizes();
+  refreshModeLabel();             // reveals the squad control if a team mode is saved
   renderOffer("offer-main", "supply");
   CG.showBanner("banner-menu");
   INPUT.init(cv);

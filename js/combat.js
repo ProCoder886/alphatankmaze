@@ -12,6 +12,20 @@ function allTanks(){
   const out = [];
   if (WORLD.player && WORLD.player.alive) out.push(WORLD.player);
   for (const e of WORLD.enemies) if (e.alive && e.spawnT <= 0) out.push(e);
+  for (const a of WORLD.allies) if (a.alive && a.spawnT <= 0) out.push(a);
+  return out;
+}
+/* Every tank hostile to `team`, for AI target selection. In the team
+   modes both sides field tanks, so an enemy's foes are the player plus
+   the allied squad, and an ally's foes are the hostile squad. The
+   opposing headquarters counts as a target too, which is what makes a
+   squad push the objective once the defenders are down. */
+function hostileTanks(w, team){
+  const out = [];
+  if (team !== "player" && w.player && w.player.alive && w.player.spawnT <= 0) out.push(w.player);
+  const squad = team === "player" ? w.enemies : w.allies;
+  for (const t of squad) if (t.alive && t.spawnT <= 0) out.push(t);
+  for (const b of w.bases) if (b.alive && b.team !== team) out.push(b);
   return out;
 }
 
@@ -49,6 +63,12 @@ function explode(x, y, opts){
   for (const t of allTanks()) {
     const d = dist(x, y, t.x, t.y);
     if (d > radius + t.radius) continue;
+    /* Blasts follow the same team rule direct fire already does: a
+       teammate is never hurt by your explosion. Without this a single
+       Atomic Strike would erase your own squad, which reads as a bug
+       when shells pass through them harmlessly. The owner still takes
+       reduced damage from their own blast — that risk is the point. */
+    if (owner && t !== owner && t.team === owner.team) continue;
     const fall = clamp(1 - d / (radius + t.radius), 0.12, 1);
     let amount = dmg * fall;
     if (t === owner) amount *= 0.55; // reduced self-damage
@@ -68,6 +88,14 @@ function explode(x, y, opts){
     if (!em.alive) continue;
     const d = dist(x, y, em.x, em.y);
     if (d < radius + em.r) damageEmplacement(em, dmg * clamp(1 - d / (radius + em.r), 0.15, 1), owner);
+  }
+  /* Headquarters take blast damage too, but only from the other side —
+     a defender's own bombs must never chip their objective. */
+  for (const b of WORLD.bases) {
+    if (!b.alive || (owner && owner.team === b.team)) continue;
+    const d = dist(x, y, b.x, b.y);
+    if (d < radius + b.radius)
+      damageBase(b, dmg * clamp(1 - d / (radius + b.radius), 0.15, 1) * BASE_SIEGE_MUL, owner);
   }
   // chain: mines
   for (const m of WORLD.mines) {
@@ -177,6 +205,15 @@ function updateShells(dt){
         if (!em.alive || s.team === "enemy") continue;
         if (dist2(s.x, s.y, em.x, em.y) < (em.r + s.r) ** 2) {
           damageEmplacement(em, s.dmg, s.owner);
+          killShell(s, i); dead = true; break;
+        }
+      }
+      // shells hit the opposing headquarters
+      if (!dead) for (const b of WORLD.bases) {
+        if (!b.alive || b.team === s.team) continue;
+        if (dist2(s.x, s.y, b.x, b.y) < (b.radius + s.r) ** 2) {
+          damageBase(b, s.dmg, s.owner);
+          if (s.owner === WORLD.player) GAME.stats.hits++;
           killShell(s, i); dead = true; break;
         }
       }
@@ -609,5 +646,153 @@ function drawPickups(c, time){
     c.restore();
     c.globalAlpha = 1;
     LIGHTS.add(p.x, p.y, 40, 0.45);
+  }
+}
+
+/* ================================================================
+   HEADQUARTERS — the objective structures of Base Assault
+   A base is not a tank: it never moves and it is not part of the
+   soft-body separation pass, so it is damaged by explicit checks in
+   the shell and explosion resolvers rather than through allTanks().
+   It still exposes the small surface the AI targeting code needs
+   (x, y, radius, vel, alive, damage) so a tank can aim and lead on
+   it exactly as it would on any other hostile.
+   ================================================================ */
+/* Structures are demolished with explosives, not chipped down with a
+   cannon: a blast counts for far more against a headquarters than a
+   shell does. That makes bombs, the Time Bomb and the Atomic Strike the
+   siege tools, and keeps the objective from turning into a grind — with
+   shells alone a base is a two-minute chore, with bombs it is a push. */
+const BASE_SIEGE_MUL = 2.2;
+const BASE_DEFS = {
+  /* Blue for the player's headquarters, green for the hostile one. */
+  player: { name: "ALLIED HQ",  color: "#2f6fe0", lit: "#7ea8ff", dark: "#12294f", hp: 700 },
+  enemy:  { name: "HOSTILE HQ", color: "#2fa64f", lit: "#7be27a", dark: "#123d1f", hp: 700 },
+};
+function makeBase(team, x, y){
+  const D = BASE_DEFS[team];
+  return {
+    team, def: D, x, y,
+    radius: CFG.TILE * 1.55,          // a genuinely large structure
+    hp: D.hp, maxHp: D.hp,
+    alive: true, flash: 0, spin: 0, pulse: rand(0, TAU),
+    vel: { x: 0, y: 0 },              // AI lead-targeting reads this
+    isBase: true,
+    spawnT: 0, invuln: 0,
+    damage(amount, sx, sy, src){ damageBase(this, amount, src); },
+  };
+}
+function damageBase(b, amount, src){
+  if (!b || !b.alive) return;
+  b.hp -= amount;
+  b.flash = 0.14;
+  fxSparkBurst(b.x + rand(-20, 20), b.y + rand(-20, 20), 6, b.def.lit);
+  if (b.hp <= 0) { b.hp = 0; b.alive = false; GAME.onBaseDown(b, src); }
+}
+function enemyBaseOf(team){
+  for (const b of WORLD.bases) if (b.team !== team && b.alive) return b;
+  return null;
+}
+function updateBases(dt){
+  for (const b of WORLD.bases) {
+    b.flash = Math.max(0, b.flash - dt);
+    b.spin += dt * (b.alive ? 0.5 : 0);
+    b.pulse += dt * 2.2;
+    if (b.alive) LIGHTS.add(b.x, b.y, 220, 0.8);
+  }
+}
+function drawBases(c, time){
+  for (const b of WORLD.bases) {
+    const D = b.def, R = b.radius;
+    const pct = clamp(b.hp / b.maxHp, 0, 1);
+    c.save();
+    c.translate(b.x, b.y);
+    // ground shadow
+    c.fillStyle = "rgba(0,0,0,0.4)";
+    c.beginPath(); c.ellipse(3, 6, R * 1.05, R * 0.9, 0, 0, TAU); c.fill();
+    if (!b.alive) {
+      // burnt-out husk
+      c.fillStyle = "rgba(24,22,20,0.92)";
+      c.beginPath(); c.arc(0, 0, R * 0.86, 0, TAU); c.fill();
+      c.strokeStyle = "rgba(90,80,70,0.7)"; c.lineWidth = 3;
+      c.beginPath(); c.arc(0, 0, R * 0.86, 0, TAU); c.stroke();
+      c.restore();
+      continue;
+    }
+    // rotating outer ring of armour segments
+    c.rotate(b.spin);
+    for (let i = 0; i < 8; i++) {
+      c.save();
+      c.rotate(i * TAU / 8);
+      c.fillStyle = i % 2 ? D.dark : D.color;
+      c.fillRect(R * 0.78, -R * 0.20, R * 0.30, R * 0.40);
+      c.restore();
+    }
+    c.rotate(-b.spin);
+    // hull plates
+    c.fillStyle = D.dark;
+    c.beginPath(); c.arc(0, 0, R * 0.80, 0, TAU); c.fill();
+    c.fillStyle = D.color;
+    c.beginPath(); c.arc(0, 0, R * 0.66, 0, TAU); c.fill();
+    // panel seams
+    c.strokeStyle = "rgba(0,0,0,0.35)"; c.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      const a = i * TAU / 6 + b.spin * 0.4;
+      c.beginPath();
+      c.moveTo(Math.cos(a) * R * 0.28, Math.sin(a) * R * 0.28);
+      c.lineTo(Math.cos(a) * R * 0.78, Math.sin(a) * R * 0.78);
+      c.stroke();
+    }
+    // reactor core: brightness tracks remaining integrity
+    const beat = 0.72 + 0.28 * Math.sin(b.pulse) * pct;
+    const g = c.createRadialGradient(0, 0, 2, 0, 0, R * 0.44);
+    g.addColorStop(0, "#ffffff");
+    g.addColorStop(0.35, D.lit);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    c.globalAlpha = beat * (0.35 + 0.65 * pct);
+    c.fillStyle = g;
+    c.beginPath(); c.arc(0, 0, R * 0.44, 0, TAU); c.fill();
+    c.globalAlpha = 1;
+    // specular highlight, matching the tanks' lighting direction
+    c.fillStyle = "rgba(255,255,255,0.13)";
+    c.beginPath(); c.ellipse(-R * 0.20, -R * 0.28, R * 0.34, R * 0.18, -0.5, 0, TAU); c.fill();
+    // hit flash
+    if (b.flash > 0) {
+      c.globalAlpha = b.flash / 0.14 * 0.7;
+      c.fillStyle = "#ffffff";
+      c.beginPath(); c.arc(0, 0, R * 0.82, 0, TAU); c.fill();
+      c.globalAlpha = 1;
+    }
+    // damage cracks appear as integrity falls
+    if (pct < 0.66) {
+      c.strokeStyle = "rgba(20,10,6,0.75)";
+      c.lineWidth = 2;
+      const cracks = pct < 0.33 ? 6 : 3;
+      for (let i = 0; i < cracks; i++) {
+        const a = i * TAU / cracks + 0.4;
+        c.beginPath();
+        c.moveTo(Math.cos(a) * R * 0.16, Math.sin(a) * R * 0.16);
+        c.lineTo(Math.cos(a + 0.3) * R * 0.72, Math.sin(a + 0.3) * R * 0.72);
+        c.stroke();
+      }
+      if (chance(0.35)) PARTS.spawn({
+        x: b.x + rand(-R * 0.6, R * 0.6), y: b.y + rand(-R * 0.6, R * 0.6),
+        vx: rand(-10, 10), vy: rand(-40, -18),
+        type: "smoke", size: rand(6, 13), life: 1.4, color: "#3a3a3a", layer: 1,
+      });
+    }
+    c.restore();
+    // integrity bar above the structure
+    const w = R * 2.1, y = b.y - R - 16;
+    c.fillStyle = "rgba(0,0,0,0.6)";
+    c.fillRect(b.x - w / 2, y, w, 7);
+    c.fillStyle = pct > 0.5 ? D.lit : (pct > 0.22 ? "#ffd05c" : "#ff4d5e");
+    c.fillRect(b.x - w / 2 + 1, y + 1, (w - 2) * pct, 5);
+    c.strokeStyle = "rgba(255,255,255,0.25)"; c.lineWidth = 1;
+    c.strokeRect(b.x - w / 2, y, w, 7);
+    c.fillStyle = D.lit;
+    c.font = "700 10px Bahnschrift, 'Segoe UI', sans-serif";
+    c.textAlign = "center";
+    c.fillText(D.name, b.x, y - 5);
   }
 }

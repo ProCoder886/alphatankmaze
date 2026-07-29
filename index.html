@@ -70,6 +70,10 @@
         <div class="set-grid">
           <label for="set-location">Deployment zone</label>
           <select id="set-location"></select>
+          <!-- Squad size applies to the two team modes only, and is
+               hidden for every other operation type. -->
+          <label for="set-teamsize" class="team-only" hidden>Tanks per side</label>
+          <select id="set-teamsize" class="team-only" hidden></select>
         </div>
         <!-- Optional rewarded-ad offer: pre-deploy supply drop -->
         <div class="offer" id="offer-main"></div>
@@ -117,6 +121,18 @@
         <div class="k" style="color:#ffc24d">TITAN WALKER</div><div class="v">Boss. Ground-slam shockwaves.</div>
         <div class="k" style="color:#ffa8d8">SIEGE PLATFORM</div><div class="v">Boss. Walking mortar barrage.</div>
         <div class="k" style="color:#c9a0ff">PHANTOM</div><div class="v">Boss. Cloaks and blinks behind you.</div>
+        <div class="intel-h">Team Operations</div>
+        <div class="k" style="color:#7ec8ff">BASE ASSAULT</div><div class="v">Two headquarters on one arena &mdash;
+        yours in <b>blue</b>, theirs in <b>green</b>. Level the hostile HQ before they level yours. Both sides
+        reinforce from their own HQ while it still stands, so the objective is the structure, not the body count.
+        <b>Explosives are the siege tool</b> &mdash; bombs, the Time Bomb and the Atomic Strike do far more to a
+        structure than cannon fire. A battered HQ also reinforces more slowly, so pressure compounds.</div>
+        <div class="k" style="color:#7ec8ff">TEAM BATTLE</div><div class="v">Squad against squad, no bases.
+        First side wiped out loses. No reinforcements &mdash; every tank counts.</div>
+        <div class="k">TANKS PER SIDE</div><div class="v">2 to 5, set in the Operation tab. Both squads always
+        field the same number and draw from the same roster.</div>
+        <div class="k">ALLIED TANKS</div><div class="v">Blue-steel livery with a chevron above the hull.
+        They hunt, flank, take cover and call their own targets &mdash; your shells pass straight through them.</div>
         <div class="intel-h">Arenas</div>
         <div class="tipline">Sectors rotate through <b>twelve locations</b> and eight arena shapes —
         grid, diamond, rotunda, wedge, pentagon, hexagon, octagon and crossroad. Alongside brick you

@@ -86,6 +86,8 @@ const WORLD = {
   enemies: [], shells: [], mines: [], bombs: [], barrels: [], pickups: [],
   missiles: [], drones: [], strikes: [],   // superpower objects
   emplacements: [],                        // static enemy structures
+  allies: [],                              // friendly AI squad (team modes)
+  bases: [],                               // headquarters (Base Assault)
   weatherAcc: 0,
 
   reset(levelData){
@@ -95,6 +97,7 @@ const WORLD = {
     this.enemies = []; this.shells = []; this.mines = [];
     this.bombs = []; this.pickups = [];
     this.missiles = []; this.drones = []; this.strikes = [];
+    this.allies = []; this.bases = [];
     this.barrels = levelData.barrels.map(makeBarrel);
     this.emplacements = (levelData.emplacements || []).map(e => makeEmplacement(e.kind, e.x, e.y));
     PARTS.pool.length = 0;
@@ -113,6 +116,7 @@ const WORLD = {
     LIGHTS.update(dt);
     if (this.player) this.player.update(dt, this);
     for (const e of this.enemies) e.update(dt, this);
+    for (const a of this.allies) a.update(dt, this);
     // tank vs tank soft-body separation (mass-weighted)
     const tanks = allTanks();
     for (let i = 0; i < tanks.length; i++) for (let j = i + 1; j < tanks.length; j++) {
@@ -132,6 +136,9 @@ const WORLD = {
     }
     for (let i = this.enemies.length - 1; i >= 0; i--)
       if (!this.enemies[i].alive) this.enemies.splice(i, 1);
+    for (let i = this.allies.length - 1; i >= 0; i--)
+      if (!this.allies[i].alive) this.allies.splice(i, 1);
+    updateBases(dt);
     updateShells(dt);
     updateBombs(dt);
     updateMines(dt);
@@ -271,7 +278,17 @@ const MINI = {
     for (const b of WORLD.barrels) dot(b.x, b.y, "rgba(255,150,80,0.7)", 1.6);
     for (const e of WORLD.emplacements) dot(e.x, e.y, e.def.color, 2.6);
     for (const p of WORLD.pickups) dot(p.x, p.y, "#ffe27a", 2);
+    // headquarters read as squares so they never look like a tank blip
+    for (const b of WORLD.bases) {
+      const bx = x + (b.x / (map.cols * CFG.TILE)) * dw;
+      const by = y + (b.y / (map.rows * CFG.TILE)) * dh;
+      c.fillStyle = b.alive ? b.def.lit : "rgba(90,80,70,0.7)";
+      c.fillRect(bx - 4, by - 4, 8, 8);
+      c.strokeStyle = "rgba(0,0,0,0.6)"; c.lineWidth = 1;
+      c.strokeRect(bx - 4, by - 4, 8, 8);
+    }
     for (const e of WORLD.enemies) dot(e.x, e.y, e.boss ? "#ff4d5e" : "#ff7a45", e.boss ? 4 : 2.4);
+    for (const a of WORLD.allies) if (a.alive) dot(a.x, a.y, "#7ec8ff", 2.4);
     if (WORLD.player && WORLD.player.alive) dot(WORLD.player.x, WORLD.player.y, "#46e0d8", 3);
   },
 };
@@ -297,8 +314,15 @@ const MODES = {
                 bosses: true,  advance: true,  endless: true },
   training:   { id: "training",   name: "TRAINING",     sub: "Safe practice with every power",
                 bosses: false, advance: true,  invuln: true, allPowers: true, noFail: true },
+  /* --- team modes: both sides field tanks on an ordinary arena --- */
+  team:       { id: "team",       name: "TEAM BATTLE",  sub: "Squad vs squad · last team standing",
+                bosses: false, advance: false, single: true, teams: true, squad: true },
+  basewar:    { id: "basewar",    name: "BASE ASSAULT", sub: "Destroy the hostile HQ · defend your own",
+                bosses: false, advance: false, single: true, teams: true, squad: true,
+                bases: true, respawn: true },
 };
-const MODE_ORDER = ["campaign", "survival", "timeattack", "quick", "endless", "freerun", "training"];
+const MODE_ORDER = ["campaign", "survival", "timeattack", "quick",
+                    "basewar", "team", "endless", "freerun", "training"];
 
 /* ================================================================
    SECTION 12 — GAME STATE MACHINE, WAVES, SCORING, HINTS
@@ -318,6 +342,12 @@ const GAME = {
   timescale: 1, slowmoT: 0, freeze: 0,
   deathRealT: -1,
   touchHintT: 0,        // fades the on-screen thumb-zone guide at run start
+  /* --- team modes --- */
+  teamRoster: null,     // the tank classes both squads field this round
+  homeCell: null, awayCell: null,
+  teamStartAllies: 0, teamStartEnemies: 0,
+  teamWinT: 0,          // short beat between the last kill and the results
+  respawnT: null,
   settingsReturn: "scr-main",
   mode: "campaign",
   timeLeft: 0,          // Time Attack clock
@@ -345,6 +375,7 @@ const GAME = {
     this.shownHints = {};
     this.timescale = 1; this.slowmoT = 0; this.freeze = 0;
     this.deathRealT = -1;
+    this.teamWinT = 0;
     this.revivesUsed = 0;          // rewarded revive is once per run
     POWERS.reset(M.allPowers ? 9 : 0);
     this.killStreak = 0;
@@ -377,14 +408,184 @@ const GAME = {
       : (M.single ? 3 : clamp(3 + Math.floor((level - 1) / 2), 3, 5));
     this.barrelsLeft = WORLD.barrels.length;
     this.obstaclesTotal = WORLD.emplacements.length;
-    this.waveState = M.noEnemies ? "explore" : "prep";
+    this.waveState = M.noEnemies ? "explore" : (M.teams ? "battle" : "prep");
     this.prepT = 2.4;
     this.modifier = null;
-    this.showBanner((this.def().survival ? "ARENA — " : "SECTOR " + level + " — ") + data.theme.name,
+    if (M.teams) this.deployTeams(M);
+    this.showBanner((M.teams ? "" : this.def().survival ? "ARENA — " : "SECTOR " + level + " — ") + data.theme.name,
       data.shape.name + " · " + data.theme.sub, 2.6);
     // attach state to any player feedback sent from this sector
     CG.setContext({ mode: this.mode, sector: level, shape: data.shape.id, theme: data.theme.name, difficulty: SETTINGS.difficulty });
   },
+  /* ================================================================
+     TEAM DEPLOYMENT
+     Both team modes run on the arenas, maze shapes and locations the
+     rest of the game already generates. All they add is a staging pass:
+     find the two ends of the arena, clear a yard at each, and put the
+     player's squad at one end and the hostile squad at the other. Base
+     Assault additionally drops a headquarters into each yard.
+     ================================================================ */
+  squadSize(){ return clamp(SETTINGS.teamSize | 0, CFG.SQUAD_MIN, CFG.SQUAD_MAX); },
+  deployTeams(M){
+    const map = WORLD.map;
+    const n = this.squadSize();
+    /* A deliberate separation, not the widest the arena offers. Far
+       enough that the two sides start apart and the push means something,
+       close enough that a squad — and the player — can actually reach the
+       other end through a contested maze. */
+    const pair = farthestOpenPair(map, M.bases ? CFG.BASE_GAP : CFG.TEAM_GAP);
+    if (!pair) return;                     // degenerate arena: fall back to solo
+    /* Whichever end is nearer the generated spawn becomes the player's,
+       so the deployment still respects the arena the generator built. */
+    const pl = WORLD.player;
+    const A = map.center(pair.a.c, pair.a.r), B = map.center(pair.b.c, pair.b.r);
+    const home = dist2(A.x, A.y, pl.x, pl.y) <= dist2(B.x, B.y, pl.x, pl.y) ? pair.a : pair.b;
+    const away = home === pair.a ? pair.b : pair.a;
+    const yard = M.bases ? 3 : 2;
+    carveYard(map, home.c, home.r, yard);
+    carveYard(map, away.c, away.r, yard);
+    /* The generator only promises the arena is connected if you blast
+       through brick. A squad has to be able to simply drive at the other
+       side, so if there is no open route between the two yards, clear the
+       destructible walls along the shortest one. */
+    const strict = _floodFrom(map, home.c, home.r, false);
+    if (strict.dist[away.r * map.cols + away.c] < 0) openCorridor(map, home, away);
+    this.homeCell = home; this.awayCell = away;
+    // headquarters sit at the centre of their yard
+    if (M.bases) {
+      const hp = map.center(home.c, home.r), ap = map.center(away.c, away.r);
+      WORLD.bases = [makeBase("player", hp.x, hp.y), makeBase("enemy", ap.x, ap.y)];
+      // nothing else may occupy a yard
+      const clearRad = CFG.TILE * (yard + 1);
+      WORLD.barrels = WORLD.barrels.filter(b =>
+        dist2(b.x, b.y, hp.x, hp.y) > clearRad ** 2 && dist2(b.x, b.y, ap.x, ap.y) > clearRad ** 2);
+      WORLD.emplacements = WORLD.emplacements.filter(e =>
+        dist2(e.x, e.y, hp.x, hp.y) > clearRad ** 2 && dist2(e.x, e.y, ap.x, ap.y) > clearRad ** 2);
+    }
+    // the player deploys with their own squad
+    const hs = this.stagingSpots(home, M.bases ? 3 : 1, n + 1);
+    if (hs.length) { pl.x = hs[0].x; pl.y = hs[0].y; pl.vel.x = 0; pl.vel.y = 0; CAM.snap(pl.x, pl.y); }
+    this.teamRoster = this.rollRoster(n);
+    for (let i = 0; i < n; i++) {
+      const s = hs[(i + 1) % Math.max(1, hs.length)] || { x: pl.x, y: pl.y };
+      this.spawnAlly(this.teamRoster[i], s.x, s.y, i).role = this.roleFor(i, M);
+    }
+    const as = this.stagingSpots(away, M.bases ? 3 : 1, n);
+    for (let i = 0; i < n; i++) {
+      const s = as[i % Math.max(1, as.length)] || map.center(away.c, away.r);
+      const e = new Enemy(this.teamRoster[i], s.x, s.y, this.level, {});
+      e.spawnT = 0.6;
+      e.role = this.roleFor(i, M);
+      WORLD.enemies.push(e);
+      fxSpawnPortal(s.x, s.y, e.style.accent);
+    }
+    this.teamStartAllies = WORLD.allies.length;
+    this.teamStartEnemies = WORLD.enemies.length;
+    if (M.bases) this.hint("hq", "EXPLOSIVES LEVEL A HEADQUARTERS — BOMBS, TIME BOMB AND THE ATOMIC STRIKE HIT HARDEST");
+    else this.hint("squad", "YOUR SQUAD FIGHTS WITH YOU — WIPE OUT THE HOSTILE SQUAD TO WIN");
+    this.respawnT = { player: CFG.SQUAD_RESPAWN, enemy: CFG.SQUAD_RESPAWN };
+    this.obstaclesTotal = WORLD.emplacements.length;
+    MINI.dirty = true;
+  },
+  /* Base Assault splits each squad between units that push the enemy
+     headquarters and units that hold the line. Team Battle has no
+     structures, so every tank is a guard. */
+  roleFor(i, M){ return M.bases && i % 2 === 0 ? "assault" : "guard"; },
+  /* Both squads draw from the same roster, so a team battle is a fair
+     mirror rather than a lopsided matchup. */
+  rollRoster(n){
+    const pool = SQUAD_TYPES.filter(t => ENEMY_TYPES[t]);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(pool[i % pool.length]);
+    // shuffle so squad composition is not identical every run
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = randInt(0, i);
+      const t = out[i]; out[i] = out[j]; out[j] = t;
+    }
+    return out;
+  },
+  stagingSpots(cell, skip, want){
+    const cells = openCellsNear(WORLD.map, cell.c, cell.r, skip + 4, skip);
+    const out = [];
+    for (const c of cells) {
+      const p = WORLD.map.center(c.c, c.r);
+      if (out.some(o => dist2(o.x, o.y, p.x, p.y) < (CFG.TILE * 1.4) ** 2)) continue;
+      out.push(p);
+      if (out.length >= want) break;
+    }
+    return out;
+  },
+  spawnAlly(type, x, y, slot){
+    const a = new Ally(type, x, y, this.level, slot);
+    WORLD.allies.push(a);
+    fxSpawnPortal(x, y, a.style.accent);
+    return a;
+  },
+  onAllyDead(a, src){
+    fxText(a.x, a.y - 26, a.callsign + " DOWN", "#7ec8ff", 13);
+    AUDIO.beep(180);
+  },
+  onBaseDown(b, src){
+    const mine = b.team === "player";
+    CAM.addShake(1.2);
+    FX.doFlash(0.55, mine ? "255,120,80" : "150,255,170");
+    this.slowmo(0.28, 1.3);
+    for (let i = 0; i < 6; i++)
+      setTimeoutSafe(() => explode(b.x + rand(-60, 60), b.y + rand(-60, 60),
+        { radius: 110, dmg: 0, breakTiles: true }), i * 130);
+    if (mine) {
+      this.showBanner("ALLIED HQ DESTROYED", "Operation failed", 3);
+      this.deathRealT = 2.2;               // routed through the normal loss path
+    } else {
+      this.showBanner("HOSTILE HQ DESTROYED", "Objective complete", 3);
+      this.addScore(4000);
+      this.addSalvage(250);
+      CG.happytime();
+      this.teamWinT = 2.2;
+    }
+  },
+  /* Reinforcements: while a side still holds its headquarters it keeps
+     feeding tanks back in, so Base Assault stays about the objective
+     rather than becoming a one-off skirmish. */
+  /* A damaged headquarters produces reinforcements more slowly, so the
+     side that is winning the objective gains momentum and the round
+     cannot settle into an endless stream of fresh defenders. */
+  reinforceDelay(base){
+    const pct = base ? clamp(base.hp / base.maxHp, 0, 1) : 1;
+    return CFG.SQUAD_RESPAWN * (pct < 0.35 ? 2.2 : pct < 0.7 ? 1.4 : 1);
+  },
+  updateReinforcements(dt, M){
+    if (!M.respawn) return;
+    const n = this.squadSize();
+    const R = this.respawnT || (this.respawnT = { player: CFG.SQUAD_RESPAWN, enemy: CFG.SQUAD_RESPAWN });
+    const home = WORLD.bases.find(b => b.team === "player");
+    const away = WORLD.bases.find(b => b.team === "enemy");
+    if (home && home.alive && WORLD.allies.length < n) {
+      R.player -= dt;
+      if (R.player <= 0) {
+        R.player = this.reinforceDelay(home);
+        const s = this.stagingSpots(this.homeCell, 3, 4);
+        const p = pick(s) || { x: home.x, y: home.y };
+        const slot = WORLD.allies.length;
+        this.spawnAlly(pick(this.teamRoster || SQUAD_TYPES), p.x, p.y, slot).role = this.roleFor(slot, M);
+        fxText(p.x, p.y - 24, "REINFORCEMENT", "#7ec8ff", 12);
+      }
+    } else R.player = CFG.SQUAD_RESPAWN;
+    if (away && away.alive && WORLD.enemies.length < n) {
+      R.enemy -= dt;
+      if (R.enemy <= 0) {
+        R.enemy = this.reinforceDelay(away);
+        const s = this.stagingSpots(this.awayCell, 3, 4);
+        const p = pick(s) || { x: away.x, y: away.y };
+        const e = new Enemy(pick(this.teamRoster || SQUAD_TYPES), p.x, p.y, this.level, {});
+        e.spawnT = 0.6;
+        e.role = this.roleFor(WORLD.enemies.length, M);
+        WORLD.enemies.push(e);
+        fxSpawnPortal(p.x, p.y, e.style.accent);
+      }
+    } else R.enemy = CFG.SQUAD_RESPAWN;
+  },
+
   startWave(n){
     this.wave = n;
     this.waveStartT = this.stats.time;
@@ -646,6 +847,32 @@ const GAME = {
         }
         break;
       }
+      /* Team Battle and Base Assault: one continuous engagement rather
+         than staged waves. Team Battle ends when a squad is wiped out;
+         Base Assault ends when a headquarters falls. */
+      case "battle": {
+        this.updateReinforcements(dt, M);
+        if (this.teamWinT > 0) {
+          this.teamWinT -= dt;
+          if (this.teamWinT <= 0) {
+            this.teamWinT = 0;
+            this.runComplete(M.bases ? "HOSTILE HQ DESTROYED" : "HOSTILE SQUAD ELIMINATED");
+          }
+          break;
+        }
+        if (M.bases) break;                // bases decide the base mode
+        if (WORLD.enemies.length === 0) {
+          this.lastClearBonus = 900 + this.squadSize() * 300;
+          this.score += this.lastClearBonus;
+          this.addSalvage(150);
+          this.showBanner("HOSTILE SQUAD ELIMINATED",
+            "+ " + fmt(this.lastClearBonus) + " victory bonus", 2.4);
+          AUDIO.waveFanfare();
+          CG.happytime();
+          this.teamWinT = 2.2;
+        }
+        break;
+      }
       case "prep":
         this.prepT -= dt;
         if (this.prepT <= 0) this.startWave(this.wave + 1);
@@ -784,10 +1011,19 @@ const GAME = {
       eyebrow.style.color = "var(--danger)";
       title.textContent = "Operation Failed";
     }
+    const MD = this.def();
     document.getElementById("go-stats").innerHTML =
-      statRow("Mode", this.def().name) +
-      statRow(this.def().survival ? "Waves survived" : "Sector reached",
-              this.def().survival ? Math.max(0, this.wave - 1) : this.level) +
+      statRow("Mode", MD.name) +
+      (MD.teams
+        ? statRow("Squad", this.squadSize() + " v " + this.squadSize()) +
+          (MD.bases
+            ? statRow("Your HQ", (() => {
+                const b = WORLD.bases.find(x => x.team === "player");
+                return b ? (b.alive ? Math.round(100 * b.hp / b.maxHp) + "% intact" : "destroyed") : "—";
+              })())
+            : statRow("Squad left", WORLD.allies.filter(a => a.alive).length + " / " + this.squadSize()))
+        : statRow(MD.survival ? "Waves survived" : "Sector reached",
+                  MD.survival ? Math.max(0, this.wave - 1) : this.level)) +
       statRow("Kills", this.stats.kills) +
       statRow("Accuracy", acc + "%") +
       statRow("Best combo", "x" + Math.max(1, this.combo.best)) +

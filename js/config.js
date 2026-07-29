@@ -23,6 +23,18 @@ const CFG = {
   SIGHT_RANGE: 540,
   HEAR_MEMORY: 4.0,
   MINE_CAP: 14,
+  /* Team modes: how many tanks a side may field, and how long a side
+     that still holds its headquarters waits before reinforcing. */
+  SQUAD_MIN: 2,
+  SQUAD_MAX: 5,
+  SQUAD_RESPAWN: 10,
+  /* How close a hostile tank must be before an assault unit breaks off
+     from the headquarters it is besieging to defend itself. */
+  ASSAULT_THREAT: 300,
+  /* Tiles between the two staging ends. Base Assault is tighter because
+     a squad has to survive the crossing to reach the objective at all. */
+  BASE_GAP: 15,
+  TEAM_GAP: 20,
   VERSION: "1.0",
 };
 
@@ -94,7 +106,7 @@ const SAVE = {
   defaults(){
     return {
       v: 1,
-      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "adaptive", location: "random" },
+      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "adaptive", location: "random", teamSize: 3 },
       scores: [],
       /* salvage = the non-ad currency players can spend on the same
          bonuses the rewarded ads grant (SDK requires an alternative).

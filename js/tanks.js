@@ -537,8 +537,8 @@ function bossTypeForLevel(level){
 }
 
 class Enemy extends Tank {
-  constructor(type, x, y, level, mods){
-    super(x, y, "enemy");
+  constructor(type, x, y, level, mods, team){
+    super(x, y, team || "enemy");
     this.type = type;
     const D = ENEMY_TYPES[type];
     this.boss = !!D.boss;
@@ -594,27 +594,66 @@ class Enemy extends Tank {
     }
   }
 
-  /* ---- perception: vision (LOS raycast) + hearing (noise events) ---- */
+  /* ---- perception: vision (LOS raycast) + hearing (noise events) ----
+     Solo modes have exactly one hostile — the player — but the team and
+     base modes put several on the field, so perception resolves a target
+     rather than assuming one. Line of sight wins over raw proximity, and
+     a headquarters is deprioritised slightly so a squad deals with the
+     tanks shooting at it before it starts hammering the objective. */
   perceive(dt, w){
     this.perceptT -= dt;
     if (this.lastSeen) this.lastSeen.age += dt;
     if (this.perceptT > 0) return;
     this.perceptT = 0.13;
-    const pl = w.player;
-    if (!pl || !pl.alive) { this.canSee = false; return; }
-    const d = dist(this.x, this.y, pl.x, pl.y);
+    const foes = hostileTanks(w, this.team);
     this.canSee = false;
-    if (d < CFG.SIGHT_RANGE * (this.type === "sniper" ? 1.5 : 1)) {
-      const rc = w.map.raycast(this.x, this.y, pl.x, pl.y);
-      if (!rc.hit) {
-        this.canSee = true;
-        this.lastSeen = { x: pl.x, y: pl.y, age: 0 };
-      }
+    if (!foes.length) { this.tgt = null; return; }
+    const range = CFG.SIGHT_RANGE * (this.type === "sniper" ? 1.5 : 1);
+    /* Base Assault needs someone actually pushing the objective. Both
+       sides reinforce continuously, so a squad that always takes the
+       nearest target fights tanks forever and never touches the
+       headquarters — the structure is always the farthest thing on the
+       field, so no distance weighting is enough to outrank a tank that
+       just spawned. Assault units therefore commit to the structure
+       outright and only break off for a tank close enough to be an
+       immediate threat; guards do the opposite and defend. */
+    const assault = this.role === "assault";
+    const baseW = assault ? 1 : 1.35;
+    let seen = null, seenD = Infinity, near = null, nearD = Infinity;
+    let tankSeen = null, tankSeenD = Infinity, baseTgt = null;
+    for (const f of foes) {
+      const raw = dist(this.x, this.y, f.x, f.y);
+      const w8 = raw * (f.isBase ? baseW : 1);
+      if (f.isBase) baseTgt = f;
+      if (w8 < nearD) { nearD = w8; near = f; }
+      if (raw > range + (f.isBase ? f.radius : 0)) continue;
+      if (w.map.raycast(this.x, this.y, f.x, f.y).hit) continue;
+      if (w8 < seenD) { seenD = w8; seen = f; }
+      if (!f.isBase && raw < tankSeenD) { tankSeenD = raw; tankSeen = f; }
     }
-    if (!this.canSee) {
-      const n = NOISES.heardAt(this.x, this.y);
-      if (n && (!this.lastSeen || this.lastSeen.age > 0.5))
-        this.lastSeen = { x: n.x, y: n.y, age: 0.2 };
+    if (assault && baseTgt) {
+      // self-defence first, then straight back to the objective
+      this.tgt = (tankSeen && tankSeenD < CFG.ASSAULT_THREAT) ? tankSeen : baseTgt;
+      const vis = this.tgt === baseTgt ? (seen === baseTgt) : true;
+      this.canSee = vis;
+      if (vis) { this.lastSeen = { x: this.tgt.x, y: this.tgt.y, age: 0 }; return; }
+      this.lastSeen = { x: baseTgt.x, y: baseTgt.y, age: 0 };
+      return;
+    }
+    this.tgt = seen || near;
+    if (seen) {
+      this.canSee = true;
+      this.lastSeen = { x: seen.x, y: seen.y, age: 0 };
+      return;
+    }
+    const n = NOISES.heardAt(this.x, this.y);
+    if (n && (!this.lastSeen || this.lastSeen.age > 0.5)) {
+      this.lastSeen = { x: n.x, y: n.y, age: 0.2 };
+    } else if (near && GAME.def().teams && (!this.lastSeen || this.lastSeen.age > CFG.HEAR_MEMORY)) {
+      /* A team battle has to converge. With no sight and no sound, head
+         for the nearest hostile's last known position instead of
+         wandering, or two squads can circle an arena indefinitely. */
+      this.lastSeen = { x: near.x, y: near.y, age: 0 };
     }
   }
 
@@ -652,21 +691,23 @@ class Enemy extends Tank {
   }
 
   /* ---- combat targeting: predictive lead + skill-scaled error ---- */
-  aimAtPlayer(w){
-    const pl = w.player;
-    const d = dist(this.x, this.y, pl.x, pl.y);
+  aimAtTarget(w, t){
+    const d = dist(this.x, this.y, t.x, t.y);
     const tt = d / this.def.shell.spd;
     const lead = this.def.lead * DIRECTOR.leadMul();
-    const tx = pl.x + pl.vel.x * tt * lead;
-    const ty = pl.y + pl.vel.y * tt * lead;
-    const err = this.def.aimErr * this.aimErrMod * DIRECTOR.aimErrMul();
+    const tx = t.x + t.vel.x * tt * lead;
+    const ty = t.y + t.vel.y * tt * lead;
+    // A stationary structure needs no lead and deserves no random spread.
+    const err = t.isBase ? 0 : this.def.aimErr * this.aimErrMod * DIRECTOR.aimErrMul();
     this.aimAng = Math.atan2(ty - this.y, tx - this.x) + rand(-err, err);
     return d;
   }
-  tryFire(w, d){
-    if (this.reloadT > 0 || d > this.def.range) return;
-    const trueAng = Math.atan2(w.player.y - this.y, w.player.x - this.x);
-    if (Math.abs(angDiff(this.tAngle, trueAng)) > 0.14) return;
+  tryFire(w, d, t){
+    // A base is a wide target, so range is measured to its hull.
+    if (this.reloadT > 0 || d - (t.isBase ? t.radius : 0) > this.def.range) return;
+    const trueAng = Math.atan2(t.y - this.y, t.x - this.x);
+    const slack = t.isBase ? 0.32 : 0.14;
+    if (Math.abs(angDiff(this.tAngle, trueAng)) > slack) return;
     if (this.def.burst) {
       this.burstLeft = this.def.burst;
       this.burstT = 0;
@@ -696,13 +737,16 @@ class Enemy extends Tank {
   }
 
   think(dt, w){
-    const pl = w.player;
     this.stateT += dt;
     this.bombCd = Math.max(0, this.bombCd - dt);
     this.mineCd = Math.max(0, this.mineCd - dt);
     if (this.fleeFrom) { this.fleeFrom.t -= dt; if (this.fleeFrom.t <= 0) this.fleeFrom = null; }
     this.perceive(dt, w);
     this.runBurst(dt);
+    /* `pl` is whatever this tank is currently fighting — the player in
+       every solo mode, and any hostile tank or headquarters in the team
+       modes. With nothing left to fight, hold position. */
+    const pl = this.tgt;
     if (!pl || !pl.alive) { this.moveIn.x = 0; this.moveIn.y = 0; return; }
     if (this.boss) return this.thinkBoss(dt, w);
     this.tickTraits(dt, w);
@@ -715,8 +759,17 @@ class Enemy extends Tank {
     } else this.stuckT = 0;
     this.prevX = this.x; this.prevY = this.y;
 
-    // low-morale retreat
-    if (this.hp < this.maxHp * 0.28 && this.state !== "flee" && this.type !== "heavy" && this.type !== "guardian" && chance(dt * 2)) {
+    /* Low-morale retreat. In the solo modes the player drives the fight,
+       so a hurt tank breaking off is good pacing. A team round has no
+       such driver: two damaged squads both retreating just oscillate
+       between hunt and flee and the round never resolves. So team modes
+       retreat later and for less time, and the last tank on a side —
+       which has nowhere to fall back to — stands and fights. */
+    const teams = GAME.def().teams;
+    const squad = this.team === "player" ? w.allies : w.enemies;
+    const lastStand = teams && squad.filter(t => t.alive).length <= 1;
+    const breakPoint = teams ? 0.15 : 0.28;
+    if (!lastStand && this.hp < this.maxHp * breakPoint && this.state !== "flee" && this.type !== "heavy" && this.type !== "guardian" && chance(dt * 2)) {
       this.setState("flee");
       if (this.type === "bomber" && this.mineCd <= 0) { layMine(this.x, this.y, this); this.mineCd = 5; }
     }
@@ -758,12 +811,13 @@ class Enemy extends Tank {
           if (this.stateT > 0.8) this.setState("hunt");
           break;
         }
-        const d = this.aimAtPlayer(w);
+        const d = this.aimAtTarget(w, pl);
         // spacing: approach / back off / strafe
         const dx = pl.x - this.x, dy = pl.y - this.y;
         const nx = dx / Math.max(1, d), ny = dy / Math.max(1, d);
         let mx = 0, my = 0;
-        const pd = this.def.prefDist;
+        // Hold station off a headquarters' hull rather than its centre.
+        const pd = this.def.prefDist + (pl.isBase ? pl.radius : 0);
         if (d > pd + 50) { mx = nx; my = ny; }
         else if (d < pd - 50) { mx = -nx; my = -ny; }
         this.strafeT -= dt;
@@ -793,10 +847,10 @@ class Enemy extends Tank {
             }
           }
         } else {
-          this.tryFire(w, d);
+          this.tryFire(w, d, pl);
         }
         // scouts finish with a ramming charge
-        if (this.def.ram && d < this.radius + pl.radius + 8) {
+        if (this.def.ram && !pl.isBase && d < this.radius + pl.radius + 8) {
           pl.damage(this.def.ram, this.x, this.y, this);
           pl.vel.x += (pl.x - this.x) * 3; pl.vel.y += (pl.y - this.y) * 3;
           this.damage(this.maxHp * 0.5, this.x, this.y, null);
@@ -810,7 +864,7 @@ class Enemy extends Tank {
         break;
       }
       case "flee": {
-        if (this.stateT > 4 || this.hp > this.maxHp * 0.4) { this.setState(this.canSee ? "engage" : "patrol"); break; }
+        if (this.stateT > (teams ? 2.2 : 4) || this.hp > this.maxHp * 0.4) { this.setState(this.canSee ? "engage" : "patrol"); break; }
         if (!this.fleeTarget || this.stateT < 0.1) {
           let best = null, bestD = -1;
           for (let i = 0; i < 10; i++) {
@@ -823,7 +877,7 @@ class Enemy extends Tank {
           this.fleeTarget = best || { x: this.x, y: this.y };
         }
         this.navTo(w, this.fleeTarget.x, this.fleeTarget.y, false);
-        if (this.canSee) { const d = this.aimAtPlayer(w); this.tryFire(w, d); }
+        if (this.canSee) { const d = this.aimAtTarget(w, pl); this.tryFire(w, d, pl); }
         break;
       }
     }
@@ -837,7 +891,8 @@ class Enemy extends Tank {
       this.repairT = (this.repairT || 0) - dt;
       if (this.repairT <= 0) {
         this.repairT = 0.5;
-        for (const e of WORLD.enemies) {
+        // repairs its own side, whichever side that is
+        for (const e of (this.team === "player" ? WORLD.allies : WORLD.enemies)) {
           if (e === this || !e.alive || e.hp >= e.maxHp) continue;
           if (dist2(e.x, e.y, this.x, this.y) > D.repairRange * D.repairRange) continue;
           e.hp = Math.min(e.maxHp, e.hp + D.repair);
@@ -1000,8 +1055,8 @@ class Enemy extends Tank {
     this.perceptT = 0; // boss always tracks
     this.canSee = !w.map.raycast(this.x, this.y, pl.x, pl.y).hit;
     if (this.canSee) {
-      this.aimAtPlayer(w);
-      this.tryFire(w, d);
+      this.aimAtTarget(w, pl);
+      this.tryFire(w, d, pl);
       const nx = (pl.x - this.x) / Math.max(1, d), ny = (pl.y - this.y) / Math.max(1, d);
       let mx = d > this.def.prefDist ? nx : -nx;
       let my = d > this.def.prefDist ? ny : -ny;
@@ -1064,5 +1119,59 @@ class Enemy extends Tank {
       c.fillStyle = pct > 0.5 ? "#7be27a" : (pct > 0.25 ? "#ffd05c" : "#ff4d5e");
       c.fillRect(this.x - w / 2 + 0.75, y + 0.75, (w - 1.5) * pct, 3);
     }
+  }
+}
+
+/* ================================================================
+   ALLIED TANKS — the friendly half of Team Battle and Base Assault
+   An ally is an Enemy with its team flipped: the whole tactical FSM
+   (patrol / hunt / engage / flee, A* navigation, LOS and hearing,
+   predictive lead, per-type traits) is already written against a
+   resolved target rather than the player, so it needs no second AI —
+   only a friendly livery, its own callsign, and no score payout.
+   ================================================================ */
+/* Allied liveries: one blue-steel family so a squad reads as a unit at
+   a glance, with enough variation between members to tell them apart. */
+const ALLY_LIVERY = [
+  { hull: "#2f6f9f", dark: "#153648", accent: "#7ec8ff", barrel: "#1f4d6e" },
+  { hull: "#2f8f8a", dark: "#12403e", accent: "#46e0d8", barrel: "#1e625e" },
+  { hull: "#3a5fa8", dark: "#182a4d", accent: "#8fb4ff", barrel: "#26417a" },
+  { hull: "#4a7fbf", dark: "#1e3a58", accent: "#a8ddff", barrel: "#31577f" },
+  { hull: "#2a7f6a", dark: "#123a30", accent: "#6ff0c0", barrel: "#1c5749" },
+];
+const ALLY_CALLSIGNS = ["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO"];
+/* Squad rosters, drawn from the existing tank classes. Deliberately the
+   same catalogue both sides fight with, so a team battle is symmetric. */
+const SQUAD_TYPES = ["grunt", "hunter", "panzer", "mbt", "lighttank", "heavy", "support", "scout", "bomber"];
+
+class Ally extends Enemy {
+  constructor(type, x, y, level, slot){
+    super(type, x, y, level, {}, "player");
+    this.slot = slot | 0;
+    this.callsign = ALLY_CALLSIGNS[this.slot % ALLY_CALLSIGNS.length];
+    this.style = ALLY_LIVERY[this.slot % ALLY_LIVERY.length];
+    this.scoreVal = 0;              // allies never pay out score
+    /* Both squads draw the same classes at the same stats, so a team
+       round is a genuine mirror and the player is the deciding unit by
+       being a better-armed tank rather than by the allies being nerfed.
+       Anything more than a hair of handicap here turns the AI-vs-AI
+       fight into a rout the player cannot pull back. */
+    this.aimErrMod = 1.1;
+    this.spawnT = 0.5;
+    this.invuln = 1.4;
+  }
+  onDeath(src){ GAME.onAllyDead(this, src); }
+  draw(c, time){
+    super.draw(c, time);
+    if (!this.alive || this.spawnT > 0) return;
+    // friendly chevron, so an ally is never mistaken for a hostile
+    c.save();
+    c.translate(this.x, this.y - this.radius - 20);
+    c.strokeStyle = "rgba(126,200,255,0.9)";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(-5, 3); c.lineTo(0, -3); c.lineTo(5, 3);
+    c.stroke();
+    c.restore();
   }
 }

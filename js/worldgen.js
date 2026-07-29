@@ -660,6 +660,135 @@ function genLevel(level, opts){
   return { map, theme, shape, floorCv: buildFloor(map, theme, rng), playerSpawn: ps, barrels, emplacements, rng };
 }
 
+/* ================================================================
+   TEAM DEPLOYMENT — headquarters and squad staging on an ordinary arena
+   The team modes deliberately reuse the maps, maze shapes and locations
+   every other mode generates; all they need from the generator is two
+   well-separated ends of the same arena and a clear yard at each.
+   ================================================================ */
+/* Breadth-first flood, returning the distance field and the last cell
+   reached. `breach` matches the generator's own notion of reachability:
+   destructible walls are passable because a tank simply shoots through
+   them. Without it the flood walks open floor only, which is what an
+   "can a tank drive there right now" test needs. */
+function _floodFrom(map, sc, sr, breach){
+  const cols = map.cols, rows = map.rows;
+  const dist = new Int32Array(cols * rows).fill(-1);
+  const q = [sr * cols + sc];
+  dist[sr * cols + sc] = 0;
+  let last = sr * cols + sc;
+  for (let head = 0; head < q.length; head++) {
+    const i = q[head];
+    last = i;
+    const c = i % cols, r = (i / cols) | 0;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dc, nr = r + dr;
+      if (nc < 1 || nr < 1 || nc >= cols - 1 || nr >= rows - 1) continue;
+      const ni = nr * cols + nc;
+      if (dist[ni] >= 0) continue;
+      const v = map.get(nc, nr);
+      if (v !== 0 && !(breach && (v === 2 || v === 3))) continue;
+      dist[ni] = dist[i] + 1;
+      q.push(ni);
+    }
+  }
+  return { dist, last, cols };
+}
+/* Clears the destructible walls along the shortest breach route between
+   two cells, turning it into a corridor a tank can simply drive. Used to
+   guarantee the two headquarters are connected by open floor, since the
+   generator only ever guarantees a route you could blast. */
+function openCorridor(map, a, b){
+  const path = findPath(map, a.c, a.r, b.c, b.r, { breach: true });
+  if (!path) return false;
+  for (const n of path) if (map.breakable(n.c, n.r)) map.set(n.c, n.r, 0);
+  return true;
+}
+/* The two open cells that are physically farthest apart, both reachable
+   from each other.
+
+   Note this is deliberately NOT the graph diameter. A maze's diameter
+   endpoints are far apart measured along corridors but are routinely
+   only a few tiles apart on the floor — two headquarters placed that way
+   end up almost touching. Straight-line separation is what actually
+   matters for staging two squads, so that is what gets maximised, with
+   the flood only used to keep both ends mutually reachable. */
+function farthestOpenPair(map, wantGap){
+  const cols = map.cols, rows = map.rows;
+  let start = -1;
+  outer: for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++)
+    if (map.get(c, r) === 0) { start = r * cols + c; break outer; }
+  if (start < 0) return null;
+  // breach reachability, matching the connectivity the generator guarantees
+  const fl = _floodFrom(map, start % cols, (start / cols) | 0, true);
+  /* Candidates: reachable cells, preferring ones with breathing room so a
+     headquarters is never wedged into a dead-end nook. In a tight maze
+     roomy cells can all sit in one pocket, which would put both bases on
+     top of each other — so the unrestricted set is measured too and wins
+     whenever it separates the two ends materially better. */
+  const roomy = [], any = [];
+  for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
+    if (fl.dist[r * cols + c] < 0) continue;
+    any.push({ c, r });
+    let open = 0;
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++)
+      if (map.get(c + dc, r + dr) === 0) open++;
+    if (open >= 7) roomy.push({ c, r });
+  }
+  if (any.length < 2) return null;
+  /* With no target gap this returns the widest pair. With one, it returns
+     the pair closest to that separation: two headquarters at opposite
+     corners of a large maze are unreachable in practice — squads die
+     crossing the contested middle and neither objective is ever touched —
+     so the team modes ask for a deliberate, tractable distance instead of
+     the maximum the arena allows. */
+  const widest = (cand) => {
+    let best = null, bestScore = -Infinity;
+    for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) {
+      const dc = cand[i].c - cand[j].c, dr = cand[i].r - cand[j].r;
+      const d = dc * dc + dr * dr;
+      const score = wantGap ? -Math.abs(Math.sqrt(d) - wantGap) : d;
+      if (score > bestScore) { bestScore = score; best = [cand[i], cand[j]]; }
+    }
+    if (!best) return null;
+    const dc = best[0].c - best[1].c, dr = best[0].r - best[1].r;
+    return { a: best[0], b: best[1], gap: Math.hypot(dc, dr) };
+  };
+  const wide = widest(any);
+  const nice = roomy.length >= 2 ? widest(roomy) : null;
+  const better = wantGap
+    ? (nice && Math.abs(nice.gap - wantGap) <= Math.abs(wide.gap - wantGap) + 3)
+    : (nice && nice.gap >= wide.gap * 0.8);
+  const outcome = better ? nice : wide;
+  outcome.span = fl.dist[outcome.b.r * cols + outcome.b.c];
+  return outcome;
+}
+/* Clears a yard for a headquarters. Everything inside the radius goes
+   except the arena's outer steel ring, which must stay sealed. */
+function carveYard(map, c, r, rad){
+  for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+    if (dc * dc + dr * dr > rad * rad) continue;
+    const cc = c + dc, rr = r + dr;
+    if (cc < 1 || rr < 1 || cc >= map.cols - 1 || rr >= map.rows - 1) continue;
+    if (map.get(cc, rr) !== 0) map.set(cc, rr, 0);
+  }
+}
+/* Open floor cells within `rad` of a point, nearest first — squad
+   staging positions around a headquarters. */
+function openCellsNear(map, c, r, rad, skip){
+  const out = [];
+  for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+    const d2 = dc * dc + dr * dr;
+    if (d2 > rad * rad || d2 < (skip || 0) ** 2) continue;
+    const cc = c + dc, rr = r + dr;
+    if (cc < 1 || rr < 1 || cc >= map.cols - 1 || rr >= map.rows - 1) continue;
+    if (map.get(cc, rr) !== 0) continue;
+    out.push({ c: cc, r: rr, d2 });
+  }
+  out.sort((p, q) => p.d2 - q.d2);
+  return out;
+}
+
 /* ---- A* pathfinding (4-dir, optional brick-breach costing) ---- */
 function findPath(map, sc, sr, tc, tr, opts){
   opts = opts || {};
