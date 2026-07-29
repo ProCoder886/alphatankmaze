@@ -461,9 +461,10 @@ function buildFloor(map, theme, rng){
 function genLevel(level, opts){
   opts = opts || {};
   const rng = mulberry32((opts.seed !== undefined ? opts.seed : 0xC0FFEE) ^ (level * 2654435761));
-  // Arenas are twice the previous size in each dimension.
-  let cols = clamp(57 + level * 4, 57, 101);
-  let rows = clamp(39 + Math.floor(level * 2.4), 39, 61);
+  // Arena size: half of the doubled layout, so the playfield stays tight
+  // and readable in every mode.
+  let cols = clamp(29 + level * 2, 29, 51);
+  let rows = clamp(20 + Math.floor(level * 1.2), 20, 31);
   if (cols % 2 === 0) cols++;
   if (rows % 2 === 0) rows++;
   const map = new TileMap(cols, rows);
@@ -520,7 +521,7 @@ function genLevel(level, opts){
     }
   }
   // carve open arenas
-  const roomN = 5 + level;
+  const roomN = 3 + Math.floor(level / 2);
   for (let i = 0; i < roomN; i++) {
     const rw = 3 + 2 * ((rng() * 2) | 0), rh = 3 + 2 * ((rng() * 2) | 0);
     const rc = 1 + 2 * ((rng() * ((cols - rw - 2) / 2)) | 0);
@@ -546,7 +547,7 @@ function genLevel(level, opts){
   }
   // watchtowers: indestructible pillars dropped into open ground for cover.
   // Only placed where they leave the surrounding cells walkable.
-  const towerN = Math.min(22, 5 + level * 2);
+  const towerN = Math.min(10, 2 + level);
   let tTries = 0;
   for (let i = 0; i < towerN && tTries < 200; ) {
     tTries++;
@@ -597,9 +598,9 @@ function genLevel(level, opts){
 
   // barrels: floor cells away from spawn
   const barrels = [];
-  const want = 22 + level * 3;
+  const want = 9 + level * 2;
   let tries = 0;
-  while (barrels.length < want && tries++ < 3000) {
+  while (barrels.length < want && tries++ < 1200) {
     const c = 1 + ((rng() * (cols - 2)) | 0), r = 1 + ((rng() * (rows - 2)) | 0);
     if (map.get(c, r) !== 0) continue;
     const p = map.center(c, r);

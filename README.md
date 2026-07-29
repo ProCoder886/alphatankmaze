@@ -69,7 +69,7 @@ Titan Walker (ground-slam shockwaves), Siege Platform (mortar barrage) and
 Phantom Prototype (cloaks and blinks).
 
 **Arenas** — sixteen locations (including pink, orange, dark-green and black
-zones), twice the size in each dimension, and eight arena shapes (grid, diamond, rotunda,
+zones) and eight arena shapes (grid, diamond, rotunda,
 wedge, pentagon, hexagon, octagon, crossroad). Alongside brick there is
 reinforced stone, which needs a real blast, and watchtowers, which never fall
 and block line of sight. Every generated arena is verified fully connected, so
