@@ -51,8 +51,16 @@ The rack in the top-right corner shows every power as a coloured circle with
 its key, its remaining charges and a cooldown sweep.
 
 **Game modes** — Campaign, Survival, Time Attack, Quick Battle, Endless Run,
-Free Run and Training, chosen from *Operation Type* on the menu and
-remembered between sessions.
+Free Run and Training, chosen on the menu's *Operation* tab and remembered
+between sessions, along with a deployment **Location** (Random, rotating, or
+any of the sixteen zones).
+
+**Main menu** — one screen holds everything: Operation (mode + location +
+optional bonus), Manual, Config and Record are tabs, not separate screens.
+The backdrop is an animated command-deck: drifting grid, radar sweep,
+rotating wireframe polygons, orbiting glow nodes and a scanning bar, with
+layered glow and shadow on the panel. All of it stops under
+`prefers-reduced-motion`.
 
 **Hostiles** — grunt, hunter, sniper, bomber, heavy, plus scout (fast, rams),
 artillery (long-range splash), guardian (regenerating shield) and stealth
@@ -60,7 +68,8 @@ artillery (long-range splash), guardian (regenerating shield) and stealth
 Titan Walker (ground-slam shockwaves), Siege Platform (mortar barrage) and
 Phantom Prototype (cloaks and blinks).
 
-**Arenas** — twelve locations and eight arena shapes (grid, diamond, rotunda,
+**Arenas** — sixteen locations (including pink, orange, dark-green and black
+zones), twice the size in each dimension, and eight arena shapes (grid, diamond, rotunda,
 wedge, pentagon, hexagon, octagon, crossroad). Alongside brick there is
 reinforced stone, which needs a real blast, and watchtowers, which never fall
 and block line of sight. Every generated arena is verified fully connected, so
@@ -68,8 +77,10 @@ a wave can never become unclearable.
 
 **Rewards** — kill-streak power charges, wave and sector-clear charges, boss
 drops, salvage from crates, and four optional rewarded-ad offers (supply drop,
-double clearance bonus, ordnance resupply, revive) that each have an
-equal-value salvage alternative.
+double clearance bonus, ordnance resupply, armour refit, salvage haul, revive
+and emergency respawn) that rotate so the same prompt never repeats. Each has
+an equal-value salvage alternative, except the salvage haul which is simply
+skippable.
 
 ## CrazyGames SDK integration
 
@@ -142,7 +153,8 @@ bonuses reachable.
 | Mobile selection / magnifier | `user-select` (all prefixes), `-webkit-touch-callout`, `touch-action: none` |
 | CrazyGames App safe areas | `env(safe-area-inset-*)` applied to menus and to the canvas HUD |
 | Land in gameplay fast | Single click from menu to gameplay; `gameplayStart` fires at real play |
-| Chromebook / low-end devices | Adaptive quality tiers; mobile and tablet start one tier down |
+| Chromebook / low-end devices | Four quality tiers (Ultra default on desktop); phones and tablets step down to High, and the floor/decal buffers scale with the tier |
+| Whole arena visible | Minimap sits in the top-right corner and always fits the full map |
 | No custom fullscreen button, no cross-promotion, no external ads | None present |
 | AZERTY keyboards | Movement reads physical key codes, so WASD maps to ZQSD |
 

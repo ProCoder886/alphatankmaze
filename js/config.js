@@ -27,12 +27,16 @@ const CFG = {
 };
 
 const QUALITY = {
-  high: { parts: 1000, lightScale: 1.0,  weather: 1.0, shellLights: 26, dpr: 2.0 },
-  med:  { parts: 520,  lightScale: 0.6,  weather: 0.6, shellLights: 12, dpr: 1.5 },
-  low:  { parts: 240,  lightScale: 0.45, weather: 0.3, shellLights: 4,  dpr: 1.0 },
+  /* floorScale keeps the pre-rendered floor canvas affordable on weaker
+     devices now that arenas are twice as large in each dimension. */
+  ultra:{ parts: 2000, lightScale: 1.0,  weather: 1.4, shellLights: 40, dpr: 2.0, floorScale: 1.0,  detail: 1.6, reflect: true },
+  high: { parts: 1000, lightScale: 1.0,  weather: 1.0, shellLights: 26, dpr: 2.0, floorScale: 1.0,  detail: 1.0, reflect: true },
+  med:  { parts: 520,  lightScale: 0.6,  weather: 0.6, shellLights: 12, dpr: 1.5, floorScale: 0.7,  detail: 0.6, reflect: false },
+  low:  { parts: 240,  lightScale: 0.45, weather: 0.3, shellLights: 4,  dpr: 1.0, floorScale: 0.5,  detail: 0.35, reflect: false },
 };
-let QT = QUALITY.high;   // resolved quality tier
-let autoTier = 0;        // 0=high 1=med 2=low (when quality === 'auto')
+const QUALITY_TIERS = ["ultra", "high", "med", "low"];
+let QT = QUALITY.ultra;  // resolved quality tier
+let autoTier = 0;        // index into QUALITY_TIERS (when quality === 'auto')
 
 /* ---- math helpers ---- */
 function clamp(v, a, b){ return v < a ? a : (v > b ? b : v); }
@@ -90,7 +94,7 @@ const SAVE = {
   defaults(){
     return {
       v: 1,
-      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "auto", crt: false, fps: false, difficulty: "adaptive" },
+      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "adaptive", location: "random" },
       scores: [],
       /* salvage = the non-ad currency players can spend on the same
          bonuses the rewarded ads grant (SDK requires an alternative).

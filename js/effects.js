@@ -294,10 +294,17 @@ const LIGHTS = {
 /* ---- persistent world-space decals: scorch, treads, wrecks ---- */
 const DECALS = {
   cv: null, cx: null,
+  scale: 1,
   init(w, h){
+    // Half-resolution decal layer keeps memory sane on the larger arenas;
+    // scorch marks and treads are soft, so the loss is invisible.
+    this.scale = (QT.floorScale || 1) >= 1 ? 0.5 : 0.35;
     this.cv = document.createElement("canvas");
-    this.cv.width = w; this.cv.height = h;
+    this.cv.width = Math.max(2, Math.round(w * this.scale));
+    this.cv.height = Math.max(2, Math.round(h * this.scale));
     this.cx = this.cv.getContext("2d");
+    this.cx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
+    this.w = w; this.h = h;
   },
   scorch(x, y, r){
     if (!this.cx) return;

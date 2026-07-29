@@ -367,3 +367,131 @@ ol#rec-list li .lv{color:var(--ink-dim);}
   input[type=range]{width:130px;}
   .offer .btn-row{flex-direction:column;}
 }
+
+/* ============================================================
+   MAIN MENU — single consolidated menu with tabbed sections,
+   layered glow, deep shadows and animated geometry behind it.
+   All animation is disabled under prefers-reduced-motion.
+   ============================================================ */
+.menu-panel{
+  max-width:min(760px,94vw);
+  box-shadow:
+    0 40px 110px rgba(0,0,0,0.72),
+    0 0 60px rgba(70,224,216,0.10),
+    inset 0 1px 0 rgba(190,225,240,0.10);
+  animation:panel-in .5s cubic-bezier(.2,.9,.3,1);
+}
+@keyframes panel-in{
+  from{opacity:0;transform:translateY(16px) scale(.985);}
+  to{opacity:1;transform:none;}
+}
+.menu-head{text-align:center;}
+.menu-head .eyebrow{animation:fade-up .5s .05s both;}
+.menu-head .title{animation:fade-up .5s .12s both;}
+.menu-head .subtitle{animation:fade-up .5s .2s both;}
+@keyframes fade-up{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+
+/* title gets a slow travelling sheen and a breathing glow */
+h1.title{position:relative;}
+h1.title::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,0.5) 50%,transparent 62%);
+  background-size:280% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:sheen 5.5s ease-in-out infinite;
+}
+@keyframes sheen{0%,70%{background-position:180% 0;}100%{background-position:-80% 0;}}
+
+.deploy-btn{
+  display:block;width:100%;text-align:center;font-size:17px;margin:4px 0 16px;
+  animation:fade-up .5s .28s both, deploy-pulse 3s 1s ease-in-out infinite;
+  text-shadow:0 0 18px rgba(143,255,246,0.5);
+}
+@keyframes deploy-pulse{
+  0%,100%{box-shadow:0 0 22px rgba(70,224,216,0.18);}
+  50%{box-shadow:0 0 40px rgba(70,224,216,0.42), 0 0 90px rgba(70,224,216,0.12);}
+}
+
+/* ---- tabs ---- */
+.tabs{display:flex;gap:6px;margin:2px 0 14px;flex-wrap:wrap;animation:fade-up .5s .34s both;}
+.tab{
+  flex:1;min-width:84px;
+  font-family:var(--font-cmd);font-size:12px;font-weight:700;
+  letter-spacing:.2em;text-transform:uppercase;color:var(--ink-dim);
+  background:rgba(16,24,33,0.5);border:1px solid var(--edge);
+  padding:9px 8px;cursor:pointer;position:relative;
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+  transition:color .18s, border-color .18s, background .18s, box-shadow .18s;
+}
+.tab:hover{color:var(--ink);border-color:rgba(120,190,210,0.5);}
+.tab.on{
+  color:#eafffd;border-color:var(--friend);
+  background:linear-gradient(180deg, rgba(70,224,216,0.22), rgba(70,224,216,0.05));
+  box-shadow:0 0 22px rgba(70,224,216,0.28), inset 0 0 18px rgba(70,224,216,0.10);
+}
+.tabpanel{display:none;animation:tab-in .32s ease-out;}
+.tabpanel.on{display:block;}
+@keyframes tab-in{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+.tab-h{
+  font-size:10.5px;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--hostile-hot);margin:2px 0 8px;font-weight:700;
+}
+.menu-foot{text-align:center;margin-top:14px;}
+
+/* menu buttons and cards get a sweep on hover */
+.mode-card{position:relative;overflow:hidden;}
+.mode-card::after{
+  content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,0.10),transparent);
+  transition:left .5s ease;
+}
+.mode-card:hover::after{left:120%;}
+.mode-card.on{
+  box-shadow:0 0 22px rgba(70,224,216,0.22), inset 0 0 20px rgba(70,224,216,0.07);
+}
+
+/* ---- animated geometric backdrop behind the menu panel ---- */
+.menu-fx{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;}
+.menu-fx span{position:absolute;display:block;}
+.mfx-ring{
+  border:1px solid rgba(70,224,216,0.13);border-radius:50%;
+  left:50%;top:50%;transform:translate(-50%,-50%);
+}
+.mfx-ring.r1{width:min(60vmin,520px);height:min(60vmin,520px);animation:spin 46s linear infinite;
+  border-style:dashed;}
+.mfx-ring.r2{width:min(84vmin,760px);height:min(84vmin,760px);animation:spin 70s linear infinite reverse;
+  border-color:rgba(255,122,69,0.10);}
+.mfx-ring.r3{width:min(110vmin,1000px);height:min(110vmin,1000px);animation:spin 100s linear infinite;
+  border-color:rgba(120,160,180,0.07);}
+@keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg);}}
+.mfx-poly{
+  width:150px;height:150px;border:1px solid rgba(70,224,216,0.16);
+  box-shadow:0 0 40px rgba(70,224,216,0.06) inset;
+}
+.mfx-poly.p1{left:6%;top:16%;clip-path:polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%);
+  animation:drift1 24s ease-in-out infinite;}
+.mfx-poly.p2{right:8%;top:60%;width:190px;height:190px;
+  clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);
+  border-color:rgba(255,176,58,0.14);animation:drift2 31s ease-in-out infinite;}
+.mfx-poly.p3{right:16%;top:10%;width:110px;height:110px;
+  clip-path:polygon(50% 0,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);
+  border-color:rgba(201,138,255,0.14);animation:drift3 27s ease-in-out infinite;}
+@keyframes drift1{0%,100%{transform:translate(0,0) rotate(0);}50%{transform:translate(38px,-30px) rotate(150deg);}}
+@keyframes drift2{0%,100%{transform:translate(0,0) rotate(0);}50%{transform:translate(-46px,26px) rotate(-120deg);}}
+@keyframes drift3{0%,100%{transform:translate(0,0) rotate(0);}50%{transform:translate(-26px,44px) rotate(200deg);}}
+.mfx-scan{
+  left:0;right:0;height:180px;top:-180px;
+  background:linear-gradient(180deg,transparent,rgba(70,224,216,0.045),transparent);
+  animation:scanline 9s linear infinite;
+}
+@keyframes scanline{to{top:110%;}}
+
+@media (prefers-reduced-motion: reduce){
+  .menu-panel,.menu-head *,.deploy-btn,.tabs,.tabpanel,
+  .mfx-ring,.mfx-poly,.mfx-scan,h1.title::after{animation:none !important;}
+}
+@media (max-width:560px){
+  .tabs{gap:4px;}
+  .tab{min-width:0;font-size:10.5px;letter-spacing:.12em;padding:8px 4px;}
+  .mfx-poly{display:none;}
+}

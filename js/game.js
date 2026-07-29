@@ -214,7 +214,8 @@ const WORLD = {
    MINIMAP
    ================================================================ */
 const MINI = {
-  cv: null, cx: null, dirty: true, scale: 3,
+  cv: null, cx: null, dirty: true, scale: 2,
+  box: null,   // last drawn rect, so the HUD can stack under it
   rebuild(){
     const map = WORLD.map;
     if (!map) return;
@@ -226,7 +227,9 @@ const MINI = {
     for (let r = 0; r < map.rows; r++) for (let cc = 0; cc < map.cols; cc++) {
       const v = map.get(cc, r);
       if (v === 0) continue;
-      c.fillStyle = v === 1 ? "rgba(140,165,185,0.65)" : "rgba(200,140,100,0.6)";
+      c.fillStyle = v === 1 ? "rgba(140,165,185,0.62)"
+        : v === 4 ? "rgba(235,245,250,0.85)"
+        : v === 3 ? "rgba(150,160,170,0.6)" : "rgba(200,140,100,0.55)";
       c.fillRect(cc * s, r * s, s, s);
     }
     this.dirty = false;
@@ -236,11 +239,14 @@ const MINI = {
     if (!map) return;
     if (map.dirty || this.dirty) { this.rebuild(); map.dirty = false; }
     const mw = this.cv.width, mh = this.cv.height;
-    const maxW = Math.min(190 * UIS, W * 0.28);
-    const maxH = Math.min(150 * UIS, H * 0.24);
+    // Top-right corner, sized so the WHOLE arena is always visible.
+    const maxW = Math.min(210 * UIS, W * 0.26);
+    const maxH = Math.min(150 * UIS, H * 0.22);
     const k = Math.min(maxW / mw, maxH / mh);
     const dw = mw * k, dh = mh * k;
-    const x = W - dw - 16 - SAFE.r, y = H - dh - 16 - SAFE.b;
+    const x = W - dw - Math.round(16 * UIS) - SAFE.r;
+    const y = Math.round(16 * UIS) + SAFE.t;
+    this.box = { x: x - 7, y: y - 7, w: dw + 14, h: dh + 14 };
     c.fillStyle = "rgba(8,12,18,0.62)";
     c.strokeStyle = "rgba(120,160,180,0.35)";
     c.lineWidth = 1;
@@ -310,6 +316,7 @@ const GAME = {
   /* --- CrazyGames reward state --- */
   revivesUsed: 0,        // rewarded revive: once per run
   pendingLoadout: null,  // claimed supply drop, applied on next deploy
+  pendingArmour: false,  // claimed armour refit, applied on next deploy
   bonusClaimed: false,   // clearance bonus already doubled this sector
   lastClearBonus: 0,     // the bonus a "double" reward can match
 
@@ -501,6 +508,12 @@ const GAME = {
 
   /* ---- reward payloads (identical whether earned by ad or salvage) ---- */
   applyLoadout(){
+    if (this.pendingArmour && WORLD.player) {
+      WORLD.player.hp = Math.min(WORLD.player.maxHp, WORLD.player.hp + 35);
+      WORLD.player.shieldHp = 45; WORLD.player.shieldT = 12;
+      this.pendingArmour = false;
+      this.showBanner("ARMOUR REFIT", "Shield online · hull reinforced", 1.8);
+    }
     if (!this.pendingLoadout || !WORLD.player) return;
     const pl = WORLD.player;
     pl.shieldHp = 45; pl.shieldT = 12;
@@ -512,7 +525,7 @@ const GAME = {
     fxPickupSparkle(pl.x, pl.y, "#8ffff6");
   },
   /* Revive: rebuild the player in place, keeping score and sector. */
-  revivePlayer(){
+  revivePlayer(inPlace){
     this.revivesUsed++;
     const data = genLevel(this.level);
     WORLD.reset(data);
@@ -523,10 +536,12 @@ const GAME = {
     pl.invuln = 2.5;
     this.waveState = "prep";
     this.prepT = 2.4;
-    this.wave = Math.max(0, this.wave - 1);   // resume from the wave that killed you
+    // A full revive replays the wave that killed you; an emergency
+    // respawn drops you back into the same one.
+    if (!inPlace) this.wave = Math.max(0, this.wave - 1);
     this.deathRealT = -1;
     this.timescale = 1; this.slowmoT = 0; this.freeze = 0;
-    this.combo = { n: 0, t: 0, best: this.combo.best };
+    if (!inPlace) this.combo = { n: 0, t: 0, best: this.combo.best };
     this.state = "playing";
     showScreen(null);
     CG.clearAllBanners();
@@ -665,7 +680,9 @@ const GAME = {
       statRow("Time", padTime(this.stats.time));
     showScreen("scr-level");
     INPUT.setPointerLock(false);
-    renderOffer("offer-level", this.level % 2 === 0 ? "power" : "bonus");
+    // Rotate the sector-clear offer so it never feels like the same prompt
+    const clearOffers = ["bonus", "power", "armour", "salvagerun"];
+    renderOffer("offer-level", clearOffers[this.level % clearOffers.length]);
     AUDIO.setEngine(0);
   },
   /* Advance to the next sector. A midgame ad may run here — a sector
@@ -673,7 +690,10 @@ const GAME = {
      Skipped if a rewarded ad was just watched on this screen, since
      chaining two ads for one transition is not allowed. */
   async nextLevel(){
-    if (!this.bonusClaimed) await CG.midgame();
+    // Never chain a midgame ad onto a rewarded one. The cooldown is set by
+    // every rewarded ad, so this covers all sector-clear offers, not just
+    // the clearance bonus.
+    if (CG.rewardCooldownLeft() === 0 && !this.bonusClaimed) await CG.midgame();
     this.level++;
     // carry-over refit between sectors
     const pl = WORLD.player;
@@ -740,7 +760,8 @@ const GAME = {
     if (isRecord) CG.happytime();          // platform celebration: new best
     showScreen("scr-over");
     INPUT.setPointerLock(false);
-    renderOffer("offer-over", "revive");   // "out of lives" rewarded offer
+    // Death offers alternate between a full revive and an emergency respawn
+    renderOffer("offer-over", (SAVE.data.stats.deaths | 0) % 2 === 0 ? "revive" : "respawn");
     CG.showBanner("banner-over");          // static screen, shown >5s
   },
   pause(){

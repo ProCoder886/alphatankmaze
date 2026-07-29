@@ -94,30 +94,30 @@ function drawHUD(c, time){
     c.fillText(label, bx + 8 * UIS, y + buffH * 0.68);
     bx += buffW + 8 * UIS;
   }
-  /* --- right cluster: score / combo --- */
-  c.textAlign = "right";
+  /* --- minimap: top-right corner, always showing the whole arena --- */
+  MINI.draw(c);
+  /* --- superpower rack, stacked directly under the minimap --- */
+  const rackTop = (MINI.box ? MINI.box.y + MINI.box.h : padT) + Math.round(8 * UIS);
+  drawPowerRack(c, time, W - padR, rackTop);
+  /* --- top-center: score, combo, sector / wave --- */
+  c.textAlign = "center";
   c.fillStyle = "rgba(223,233,238,0.6)";
   c.font = "700 " + FS(10) + "px Bahnschrift, 'Segoe UI', sans-serif";
-  c.fillText("SCORE", W - padR, padT + FS(9));
+  c.fillText("SCORE", W / 2, padT + FS(9));
   c.fillStyle = "#eaf6fa";
   c.font = "700 " + FS(26) + "px Consolas, monospace";
-  c.fillText(fmt(GAME.score), W - padR, padT + FS(37));
+  c.fillText(fmt(GAME.score), W / 2, padT + FS(37));
   if (GAME.combo.n > 1) {
     const pct = GAME.combo.t / CFG.COMBO_WINDOW;
     const cw = 110 * UIS;
     c.fillStyle = "#8ffff6";
     c.font = "700 " + FS(16) + "px Consolas, monospace";
-    c.fillText("x" + GAME.combo.n + " COMBO", W - padR, padT + FS(59));
+    c.fillText("x" + GAME.combo.n + " COMBO", W / 2, padT + FS(57));
     c.fillStyle = "rgba(8,12,18,0.6)";
-    c.fillRect(W - padR - cw, padT + FS(66), cw, 4 * UIS);
+    c.fillRect(W / 2 - cw / 2, padT + FS(64), cw, 4 * UIS);
     c.fillStyle = "#8ffff6";
-    c.fillRect(W - padR - cw * pct, padT + FS(66), cw * pct, 4 * UIS);
+    c.fillRect(W / 2 - cw / 2, padT + FS(64), cw * pct, 4 * UIS);
   }
-  /* --- superpower rack (top-right, under the score) --- */
-  const rackTop = padT + FS(GAME.combo.n > 1 ? 74 : 46);
-  drawPowerRack(c, time, W - padR, rackTop);
-  /* --- top-center: sector / wave --- */
-  c.textAlign = "center";
   c.fillStyle = "rgba(223,233,238,0.65)";
   c.font = "700 " + FS(11) + "px Bahnschrift, 'Segoe UI', sans-serif";
   const MD = GAME.def();
@@ -126,14 +126,14 @@ function drawHUD(c, time){
   else if (MD.survival) waveTxt += "WAVE " + Math.max(1, GAME.wave);
   else waveTxt += "SECTOR " + GAME.level + "  ·  WAVE " + Math.max(1, GAME.wave) + "/" + GAME.wavesTotal;
   if (GAME.modifier && GAME.waveState === "active") waveTxt += "  ·  " + GAME.modifier.label;
-  c.fillText(waveTxt, W / 2, padT + FS(9));
+  c.fillText(waveTxt, W / 2, padT + FS(GAME.combo.n > 1 ? 82 : 58));
   // Time Attack clock, red and pulsing in the last ten seconds
   if (MD.timeLimit) {
     const low = GAME.timeLeft <= 10;
     c.fillStyle = low ? "#ff4d5e" : "#eaf6fa";
     c.font = "700 " + FS(low ? 24 : 20) + "px Consolas, monospace";
     c.globalAlpha = low ? 0.65 + 0.35 * Math.abs(Math.sin(time * 8)) : 1;
-    c.fillText(padTime(Math.ceil(GAME.timeLeft)), W / 2, padT + FS(34));
+    c.fillText(padTime(Math.ceil(GAME.timeLeft)), W / 2, padT + FS(GAME.combo.n > 1 ? 106 : 82));
     c.globalAlpha = 1;
   }
   /* --- boss bar --- */
@@ -141,7 +141,7 @@ function drawHUD(c, time){
   if (boss) {
     const bw2 = Math.min(420 * UIS, W * 0.55);
     const bossH = Math.round(12 * UIS);
-    const bx2 = W / 2 - bw2 / 2, by2 = padT + FS(20);
+    const bx2 = W / 2 - bw2 / 2, by2 = padT + FS(GAME.combo.n > 1 ? 92 : 68);
     c.fillStyle = "rgba(8,12,18,0.7)";
     chamferBar(c, bx2, by2, bw2, bossH); c.fill();
     c.fillStyle = "#ff4d5e";
@@ -188,8 +188,6 @@ function drawHUD(c, time){
     c.fillText(GAME.hintMsg.text, W / 2, H - (56 * UIS) - SAFE.b);
     c.globalAlpha = 1;
   }
-  /* --- minimap --- */
-  MINI.draw(c);
   /* --- low HP vignette --- */
   if (pl.alive && hpPct < 0.35) {
     const pulse = 0.5 + 0.5 * Math.sin(time * 5);
@@ -234,7 +232,7 @@ function drawHUD(c, time){
     c.textAlign = "left";
     c.fillStyle = "rgba(143,255,246,0.7)";
     c.font = "700 " + FS(11) + "px Consolas, monospace";
-    c.fillText(FPSMON.fps.toFixed(0) + " FPS · " + (SETTINGS.quality === "auto" ? ["HIGH", "MED", "LOW"][autoTier] + "*" : SETTINGS.quality.toUpperCase()), padL, H - 14 - SAFE.b);
+    c.fillText(FPSMON.fps.toFixed(0) + " FPS · " + (SETTINGS.quality === "auto" ? QUALITY_TIERS[autoTier].toUpperCase() + "*" : SETTINGS.quality.toUpperCase()), padL, H - 14 - SAFE.b);
   }
 }
 
@@ -253,9 +251,14 @@ const SAFE = { t: 0, r: 0, b: 0, l: 0 };
 function renderMenuBackdrop(c, time){
   const g = c.createRadialGradient(W * 0.5, H * 0.35, 60, W * 0.5, H * 0.5, Math.max(W, H) * 0.8);
   g.addColorStop(0, "#101a24");
-  g.addColorStop(1, "#05070a");
+  g.addColorStop(0.55, "#0a1119");
+  g.addColorStop(1, "#04060a");
   c.fillStyle = g;
   c.fillRect(0, 0, W, H);
+
+  const cx = W * 0.5, cy = H * 0.52;
+  const R = Math.min(W, H);
+
   // drifting tactical grid
   c.strokeStyle = "rgba(70,224,216,0.05)";
   c.lineWidth = 1;
@@ -265,22 +268,105 @@ function renderMenuBackdrop(c, time){
   for (let x = -gs + off; x < W + gs; x += gs) { c.moveTo(x, 0); c.lineTo(x, H); }
   for (let y = -gs + off; y < H + gs; y += gs) { c.moveTo(0, y); c.lineTo(W, y); }
   c.stroke();
-  // radar sweep
-  const rx = W * 0.5, ry = H * 0.52, rr = Math.min(W, H) * 0.42;
+
+  // slow parallax starfield / dust motes
   c.save();
-  c.globalAlpha = 0.6;
+  for (let i = 0; i < 70; i++) {
+    const seed = i * 127.1;
+    const px = ((Math.sin(seed) * 43758.5) % 1 + 1) % 1;
+    const py = ((Math.sin(seed * 1.7) * 27182.8) % 1 + 1) % 1;
+    const depth = 0.3 + (i % 5) * 0.16;
+    const x = (px * W + time * 9 * depth) % (W + 40) - 20;
+    const y = (py * H + time * 4 * depth) % (H + 40) - 20;
+    c.globalAlpha = 0.05 + depth * 0.10;
+    c.fillStyle = i % 7 === 0 ? "#ffb03a" : "#8ffff6";
+    c.fillRect(x, y, 1.5 + depth, 1.5 + depth);
+  }
+  c.restore();
+
+  // concentric radar rings + sweep
+  c.save();
+  c.globalAlpha = 0.55;
   c.strokeStyle = "rgba(70,224,216,0.10)";
-  for (let k = 1; k <= 3; k++) { c.beginPath(); c.arc(rx, ry, rr * k / 3, 0, TAU); c.stroke(); }
+  for (let k = 1; k <= 4; k++) {
+    c.lineWidth = k === 3 ? 1.6 : 1;
+    c.beginPath(); c.arc(cx, cy, R * 0.11 * k, 0, TAU); c.stroke();
+  }
   const sweep = time * 0.9;
-  const sg = c.createConicGradient ? c.createConicGradient(sweep, rx, ry) : null;
+  const sg = c.createConicGradient ? c.createConicGradient(sweep, cx, cy) : null;
   if (sg) {
-    sg.addColorStop(0, "rgba(70,224,216,0.10)");
+    sg.addColorStop(0, "rgba(70,224,216,0.12)");
     sg.addColorStop(0.12, "rgba(70,224,216,0)");
     sg.addColorStop(1, "rgba(70,224,216,0)");
     c.fillStyle = sg;
-    c.beginPath(); c.arc(rx, ry, rr, 0, TAU); c.fill();
+    c.beginPath(); c.arc(cx, cy, R * 0.46, 0, TAU); c.fill();
   }
   c.restore();
+
+  /* rotating wireframe polygons — the geometric layer of the backdrop */
+  const polys = [
+    { n: 3, r: 0.40, spd: -0.10, col: "255,122,69", w: 1.4 },
+    { n: 5, r: 0.30, spd: 0.16,  col: "70,224,216", w: 1.2 },
+    { n: 6, r: 0.52, spd: -0.06, col: "143,255,246", w: 1.0 },
+    { n: 8, r: 0.62, spd: 0.04,  col: "201,138,255", w: 1.0 },
+  ];
+  for (const p of polys) {
+    const rr = R * p.r * (1 + Math.sin(time * 0.35 + p.n) * 0.03);
+    c.save();
+    c.translate(cx, cy);
+    c.rotate(time * p.spd);
+    c.strokeStyle = "rgba(" + p.col + ",0.13)";
+    c.lineWidth = p.w;
+    c.beginPath();
+    for (let k = 0; k <= p.n; k++) {
+      const a = (k / p.n) * TAU;
+      const x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+      if (k === 0) c.moveTo(x, y); else c.lineTo(x, y);
+    }
+    c.stroke();
+    // vertex nodes
+    c.fillStyle = "rgba(" + p.col + ",0.30)";
+    for (let k = 0; k < p.n; k++) {
+      const a = (k / p.n) * TAU;
+      c.beginPath(); c.arc(Math.cos(a) * rr, Math.sin(a) * rr, 2.2, 0, TAU); c.fill();
+    }
+    c.restore();
+  }
+
+  // orbiting glow nodes
+  c.save();
+  c.globalCompositeOperation = "lighter";
+  for (let k = 0; k < 5; k++) {
+    const a = time * (0.22 + k * 0.05) + k * 1.9;
+    const rr = R * (0.24 + k * 0.09);
+    const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr * 0.72;
+    const gg = c.createRadialGradient(x, y, 0, x, y, 46);
+    const col = k % 2 ? "255,176,58" : "70,224,216";
+    gg.addColorStop(0, "rgba(" + col + ",0.16)");
+    gg.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = gg;
+    c.beginPath(); c.arc(x, y, 46, 0, TAU); c.fill();
+  }
+  c.restore();
+
+  // horizon sweep bar
+  const sy = (time * 90) % (H + 240) - 120;
+  const lg = c.createLinearGradient(0, sy - 90, 0, sy + 90);
+  lg.addColorStop(0, "rgba(70,224,216,0)");
+  lg.addColorStop(0.5, "rgba(70,224,216,0.05)");
+  lg.addColorStop(1, "rgba(70,224,216,0)");
+  c.fillStyle = lg;
+  c.fillRect(0, sy - 90, W, 180);
+
+  // corner brackets for the command-deck framing
+  c.strokeStyle = "rgba(120,160,180,0.18)";
+  c.lineWidth = 2;
+  const m = 26, L = 46;
+  for (const [ox, oy, dx, dy] of [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]]) {
+    c.beginPath();
+    c.moveTo(ox, oy + dy * L); c.lineTo(ox, oy); c.lineTo(ox + dx * L, oy);
+    c.stroke();
+  }
 }
 
 function render(time){
@@ -293,8 +379,8 @@ function render(time){
   ctx.fillRect(0, 0, W, H);
   const rect = CAM.visible();
   CAM.begin(ctx);
-  ctx.drawImage(WORLD.floorCv, 0, 0);
-  if (DECALS.cv) ctx.drawImage(DECALS.cv, 0, 0);
+  ctx.drawImage(WORLD.floorCv, 0, 0, WORLD.map.cols * CFG.TILE, WORLD.map.rows * CFG.TILE);
+  if (DECALS.cv) ctx.drawImage(DECALS.cv, 0, 0, DECALS.w, DECALS.h);
   WORLD.map.draw(ctx, WORLD.theme, rect);
   PARTS.draw(ctx, 0);
   drawMines(ctx);
@@ -335,6 +421,7 @@ function showScreen(id){
   // Banners are only allowed on static screens that stay up a while.
   if (id === "scr-main") {
     renderOffer("offer-main", "supply");
+    refreshModeLabel();
     CG.showBanner("banner-menu");
   } else {
     CG.clearBanner("banner-menu");
@@ -432,6 +519,39 @@ const REWARDS = {
     grant(){ POWERS.grantAll(1); },
     done: "Every superpower charged.",
   },
+  /* Respawn-on-the-spot: offered on death as an alternative to a full
+     revive, cheaper and keeps the wave running. */
+  respawn: {
+    eyebrow: "Optional bonus — Emergency respawn",
+    desc: () => "Drop straight back into <b>wave " + Math.max(1, GAME.wave) +
+                "</b> with full hull and a shield. <b>Score and combo kept.</b>",
+    label: "Respawn",
+    cost: 120,
+    avail: () => (GAME.revivesUsed || 0) < 1,
+    grant(){ GAME.revivePlayer(true); },
+    done: "Respawning on station…",
+  },
+  /* Salvage payout — converts a cleared sector into spendable currency. */
+  salvagerun: {
+    eyebrow: "Optional bonus — Salvage haul",
+    desc: () => "Collect an extra <b>250 salvage</b> from this sector's wreckage.",
+    label: "Salvage Haul",
+    cost: 0,
+    adOnly: true,
+    avail: () => true,
+    grant(){ GAME.addSalvage(250); },
+    done: "+250 salvage recovered.",
+  },
+  /* Armour refit — a durability reward rather than a firepower one. */
+  armour: {
+    eyebrow: "Optional bonus — Armour refit",
+    desc: () => "Start the next sector with a <b>shield</b> and <b>+35 hull</b>.",
+    label: "Armour Refit",
+    cost: 110,
+    avail: () => true,
+    grant(){ GAME.pendingArmour = true; },
+    done: "Armour refit scheduled.",
+  },
   revive: {
     eyebrow: "Optional bonus — Field repair drone",
     desc: () => "Redeploy in <b>Sector " + GAME.level + "</b> with full hull, shield and +2 bombs. <b>Score kept.</b>",
@@ -453,7 +573,7 @@ function renderOffer(containerId, rewardId){
 
   const blocked = CG.rewardBlockedReason();
   const salvage = GAME.salvage();
-  const canBuy = salvage >= R.cost;
+  const canBuy = !R.adOnly && salvage >= R.cost;
   // Never render an ad button that cannot do anything: off-platform, and
   // during Basic Launch (where the platform disables ads entirely), the
   // button is removed rather than shown disabled. An adblocker is the one
@@ -471,11 +591,13 @@ function renderOffer(containerId, rewardId){
           (blocked ? " disabled" : "") + '>' +
           '<span class="ad-ic">&#9654;</span>Watch Ad — ' + R.label + "</button>"
         : "") +
-      '<button class="btn" data-act="rw-buy" data-rw="' + rewardId + '" data-cont="' + containerId + '"' +
-        (canBuy ? "" : " disabled") + ">" + R.label + " — " + R.cost + " Salvage</button>" +
+      (R.adOnly ? "" :
+        '<button class="btn" data-act="rw-buy" data-rw="' + rewardId + '" data-cont="' + containerId + '"' +
+        (canBuy ? "" : " disabled") + ">" + R.label + " — " + R.cost + " Salvage</button>") +
     "</div>" +
     '<div class="offer-note' + (blocked ? " blocked" : "") + '">' +
       (blocked ? blocked + "<br>" : "") +
+      (R.adOnly ? "This bonus is optional — skip it and continue for free.<br>" : "") +
       "Salvage: <b>" + fmt(salvage) + "</b> · earned from salvage crates and cleared sectors." +
     "</div>";
 
@@ -540,9 +662,23 @@ function renderModes(){
            "</button>";
   }).join("");
 }
+function renderLocations(){
+  const el = document.getElementById("set-location");
+  if (!el) return;
+  el.innerHTML =
+    '<option value="random">Random</option>' +
+    '<option value="rotate">Rotate by sector</option>' +
+    THEMES.map((t, i) => '<option value="' + i + '">' + t.name + "</option>").join("");
+  el.value = SETTINGS.location === undefined ? "random" : String(SETTINGS.location);
+}
 function refreshModeLabel(){
   const el = document.getElementById("main-mode");
-  if (el) el.textContent = "OPERATION — " + GAME.def().name;
+  if (!el) return;
+  const loc = SETTINGS.location;
+  const locName = loc === "random" ? "RANDOM"
+    : loc === "rotate" ? "ROTATING"
+    : (THEMES[+loc] ? THEMES[+loc].name : "RANDOM");
+  el.textContent = "OPERATION — " + GAME.def().name + "   ·   ZONE — " + locName;
 }
 
 function syncSettingsUI(){
@@ -573,26 +709,22 @@ function bindUI(){
       case "rw-buy": claimReward(btn.dataset.rw, btn.dataset.cont, false); break;
 
       case "play": GAME.startRun(); break;
-      case "how": showScreen("scr-how"); break;
-      case "settings":
-        GAME.settingsReturn = GAME.state === "paused" ? "scr-pause" : "scr-main";
-        showScreen("scr-set");
+      /* Every menu section is a tab inside the single main menu. */
+      case "tab": {
+        const id = btn.dataset.tab;
+        document.querySelectorAll("#scr-main .tab").forEach(t => t.classList.toggle("on", t === btn));
+        document.querySelectorAll("#scr-main .tabpanel").forEach(pn => pn.classList.toggle("on", pn.id === id));
+        if (id === "tab-record") renderRecords();
         break;
-      case "records": renderRecords(); showScreen("scr-rec"); break;
-      case "modes": renderModes(); showScreen("scr-modes"); break;
+      }
       case "mode-pick":
         GAME.mode = btn.dataset.mode;
         SAVE.data.lastMode = GAME.mode;
         SAVE.persist();
         renderModes();
         refreshModeLabel();
-        showScreen("scr-main");
         break;
       case "back-main": showScreen("scr-main"); break;
-      case "set-back":
-        SAVE.persist();
-        showScreen(GAME.settingsReturn);
-        break;
       case "resume": GAME.resume(); break;
       case "restart": GAME.startRun(); break;
       case "quit": GAME.quitToMenu(); break;
@@ -621,6 +753,7 @@ function bindUI(){
       SETTINGS[key] = parseFloat(el.value);
       el.style.setProperty("--fill", (el.value / el.max * 100) + "%");
       AUDIO.applyVolumes();
+      SAVE.persist();
     });
   };
   onRange("set-sfx", "sfx");
@@ -629,16 +762,25 @@ function bindUI(){
   document.getElementById("set-quality").addEventListener("change", (e) => {
     SETTINGS.quality = e.target.value;
     resolveQuality();
+    SAVE.persist();
+  });
+  document.getElementById("set-location").addEventListener("change", (e) => {
+    SETTINGS.location = e.target.value;
+    SAVE.persist();
+    refreshModeLabel();
   });
   document.getElementById("set-diff").addEventListener("change", (e) => {
     SETTINGS.difficulty = e.target.value;
+    SAVE.persist();
   });
   document.getElementById("set-crt").addEventListener("change", (e) => {
     SETTINGS.crt = e.target.checked;
     document.body.classList.toggle("crt-on", SETTINGS.crt);
+    SAVE.persist();
   });
   document.getElementById("set-fps").addEventListener("change", (e) => {
     SETTINGS.fps = e.target.checked;
+    SAVE.persist();
   });
 }
 
@@ -657,14 +799,14 @@ const FPSMON = {
     this.checkT += realDt;
     if (this.checkT < 2.5) return;
     this.checkT = 0;
-    if (this.fps < 46 && autoTier < 2) { autoTier++; resolveQuality(); }
+    if (this.fps < 46 && autoTier < QUALITY_TIERS.length - 1) { autoTier++; resolveQuality(); }
     else if (this.fps > 57 && autoTier > 0 && GAME.state !== "playing") { autoTier--; resolveQuality(); }
   },
 };
 function resolveQuality(){
   QT = SETTINGS.quality === "auto"
-    ? [QUALITY.high, QUALITY.med, QUALITY.low][autoTier]
-    : (QUALITY[SETTINGS.quality] || QUALITY.high);
+    ? QUALITY[QUALITY_TIERS[clamp(autoTier, 0, QUALITY_TIERS.length - 1)]]
+    : (QUALITY[SETTINGS.quality] || QUALITY.ultra);
   resize();
 }
 function readSafeArea(){
@@ -753,7 +895,12 @@ window.addEventListener("load", async () => {
   // Phones/tablets and the CrazyGames App start a tier down so weaker
   // devices reach a stable frame rate immediately; auto-quality still
   // adapts from there.
-  if (CG.device === "mobile" || CG.device === "tablet") autoTier = 1;
+  if (CG.device === "mobile" || CG.device === "tablet") {
+    autoTier = 2;
+    // Ultra is the desktop default; phones and tablets step down so the
+    // frame rate stays smooth on the weakest supported hardware.
+    if (SETTINGS.quality === "ultra") SETTINGS.quality = "high";
+  }
   resolveQuality();
   syncSettingsUI();
   refreshMainBest();
@@ -761,6 +908,7 @@ window.addEventListener("load", async () => {
   renderOperator();
   refreshModeLabel();
   renderModes();
+  renderLocations();
   renderOffer("offer-main", "supply");
   CG.showBanner("banner-menu");
   INPUT.init(cv);

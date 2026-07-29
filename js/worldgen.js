@@ -99,6 +99,38 @@ const THEMES = [
     stone: { base: "#6e4a35", dark: "#4f3526", line: "#3a271c" },
     ambient: 0.46, lightTint: "rgba(24,8,2,", weather: "ash", accent: "#ff9a3c",
   },
+  {
+    name: "ROSE SECTOR", sub: "Blossom quarter — pink dusk",
+    floor: "#3a2230", detail: "#472a3b", seam: "rgba(255,160,210,0.06)",
+    steel: { base: "#6b3f57", light: "#96607c", dark: "#402433", rivet: "#301a26" },
+    brick: { base: "#b05378", dark: "#853c5a", line: "#632c43" },
+    stone: { base: "#8f6076", dark: "#684456", line: "#4a303e" },
+    ambient: 0.44, lightTint: "rgba(26,6,18,", weather: "leaves", accent: "#ff8fc4",
+  },
+  {
+    name: "SOLAR REFINERY", sub: "Orange works — heat haze",
+    floor: "#3d2a17", detail: "#4c351d", seam: "rgba(255,180,80,0.07)",
+    steel: { base: "#7a5324", light: "#a5743a", dark: "#4a3115", rivet: "#35220f" },
+    brick: { base: "#c07028", dark: "#94531c", line: "#6d3d14" },
+    stone: { base: "#96703f", dark: "#6d512c", line: "#4d3920" },
+    ambient: 0.2, lightTint: "rgba(30,14,2,", weather: "ash", accent: "#ffa028",
+  },
+  {
+    name: "VERDANT DEEP", sub: "Dark canopy — deep green",
+    floor: "#16261a", detail: "#1e3323", seam: "rgba(120,255,170,0.05)",
+    steel: { base: "#2c4a33", light: "#446b4c", dark: "#1a2e1f", rivet: "#122016" },
+    brick: { base: "#3f6b45", dark: "#2d4e32", line: "#1f3724" },
+    stone: { base: "#496b52", dark: "#334c3a", line: "#223527" },
+    ambient: 0.66, lightTint: "rgba(2,14,6,", weather: "leaves", accent: "#5cffa0",
+  },
+  {
+    name: "NULL VOID", sub: "Blackout facility — no lights",
+    floor: "#0e1013", detail: "#15181c", seam: "rgba(255,255,255,0.035)",
+    steel: { base: "#22262b", light: "#3a4048", dark: "#131619", rivet: "#0c0e11" },
+    brick: { base: "#2e3238", dark: "#1f2227", line: "#14171a" },
+    stone: { base: "#33383f", dark: "#23272c", line: "#15181c" },
+    ambient: 0.76, lightTint: "rgba(0,0,0,", weather: "ash", accent: "#e8f4ff",
+  },
 ];
 /* Themes may omit the newer tile palettes; derive them from the existing
    ones so every theme renders stone and tower tiles consistently. */
@@ -319,34 +351,59 @@ class TileMap {
   }
 }
 
-/* ---- pre-rendered themed floor (stains, seams, detail) ---- */
+/* ---- pre-rendered themed floor ----
+   Rendered once per sector at a quality-dependent scale: arenas are now
+   twice as large in each dimension, so a full-resolution canvas would be a
+   real memory cost on weak devices. Lower tiers render smaller and upscale. */
 function buildFloor(map, theme, rng){
   const T = CFG.TILE;
+  const fs = QT.floorScale || 1;
+  const WW = map.cols * T, HH = map.rows * T;
   const cv = document.createElement("canvas");
-  cv.width = map.cols * T; cv.height = map.rows * T;
+  cv.width = Math.max(2, Math.round(WW * fs));
+  cv.height = Math.max(2, Math.round(HH * fs));
   const c = cv.getContext("2d");
-  c.fillStyle = theme.floor;
-  c.fillRect(0, 0, cv.width, cv.height);
+  c.setTransform(fs, 0, 0, fs, 0, 0);
+  const det = QT.detail || 1;
+
+  // base wash with a soft gradient for depth
+  const bg = c.createLinearGradient(0, 0, 0, HH);
+  bg.addColorStop(0, theme.detail);
+  bg.addColorStop(0.5, theme.floor);
+  bg.addColorStop(1, theme.detail);
+  c.fillStyle = bg;
+  c.fillRect(0, 0, WW, HH);
+
   // seams
   c.strokeStyle = theme.seam;
   c.lineWidth = 1;
   c.beginPath();
-  for (let x = 0; x <= map.cols; x++) { c.moveTo(x * T + 0.5, 0); c.lineTo(x * T + 0.5, cv.height); }
-  for (let y = 0; y <= map.rows; y++) { c.moveTo(0, y * T + 0.5); c.lineTo(cv.width, y * T + 0.5); }
+  for (let x = 0; x <= map.cols; x++) { c.moveTo(x * T + 0.5, 0); c.lineTo(x * T + 0.5, HH); }
+  for (let y = 0; y <= map.rows; y++) { c.moveTo(0, y * T + 0.5); c.lineTo(WW, y * T + 0.5); }
   c.stroke();
-  // detail splotches
-  const n = map.cols * map.rows * 0.35;
+
+  // large tonal blotches
+  const n = map.cols * map.rows * 0.3 * det;
   for (let i = 0; i < n; i++) {
-    const x = rng() * cv.width, y = rng() * cv.height;
-    const r = 6 + rng() * 26;
+    const x = rng() * WW, y = rng() * HH;
+    const r = 6 + rng() * 34;
     c.fillStyle = rng() < 0.5 ? theme.detail : "rgba(0,0,0,0.06)";
-    c.globalAlpha = 0.14 + rng() * 0.2;
+    c.globalAlpha = 0.12 + rng() * 0.2;
     c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
   }
   c.globalAlpha = 1;
-  // scattered hazard chevrons / manholes for character
-  for (let i = 0; i < map.cols * 0.6; i++) {
-    const x = rng() * cv.width, y = rng() * cv.height;
+
+  // fine grain speckle — reads as concrete/sand texture up close
+  const grains = Math.round(map.cols * map.rows * 2.0 * det);
+  for (let i = 0; i < grains; i++) {
+    const x = rng() * WW, y = rng() * HH;
+    c.fillStyle = rng() < 0.5 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.07)";
+    c.fillRect(x, y, 1 + (rng() < 0.2 ? 1 : 0), 1);
+  }
+
+  // hazard chevrons / manholes
+  for (let i = 0; i < map.cols * 0.5; i++) {
+    const x = rng() * WW, y = rng() * HH;
     if (rng() < 0.5) {
       c.strokeStyle = "rgba(0,0,0,0.12)";
       c.lineWidth = 2;
@@ -359,6 +416,40 @@ function buildFloor(map, theme, rng){
       c.restore();
     }
   }
+
+  // painted lane markings and bay outlines
+  for (let i = 0; i < map.cols * 0.3 * det; i++) {
+    const x = Math.round(rng() * map.cols) * T, y = Math.round(rng() * map.rows) * T;
+    c.strokeStyle = "rgba(255,255,255,0.05)";
+    c.lineWidth = 3;
+    if (rng() < 0.5) c.strokeRect(x + 6, y + 6, T * (1 + ((rng() * 2) | 0)) - 12, T - 12);
+    else { c.beginPath(); c.moveTo(x, y + T / 2); c.lineTo(x + T * 2, y + T / 2); c.stroke(); }
+  }
+
+  // wet reflections: soft light streaks, richer tiers only
+  if (QT.reflect) {
+    c.globalCompositeOperation = "lighter";
+    const tint = theme.ambient > 0.4 ? "150,200,235" : "255,235,190";
+    for (let i = 0; i < map.cols * 0.9 * det; i++) {
+      const x = rng() * WW, y = rng() * HH;
+      const w = 10 + rng() * 26, h = 40 + rng() * 150;
+      const g = c.createLinearGradient(x, y, x, y + h);
+      g.addColorStop(0, "rgba(255,255,255,0)");
+      g.addColorStop(0.5, "rgba(" + tint + ",0.05)");
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      c.fillStyle = g;
+      c.fillRect(x, y, w, h);
+    }
+    c.globalCompositeOperation = "source-over";
+  }
+
+  // vignette so the arena edges fall away
+  const vg = c.createRadialGradient(WW / 2, HH / 2, Math.min(WW, HH) * 0.3,
+                                    WW / 2, HH / 2, Math.max(WW, HH) * 0.72);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.30)");
+  c.fillStyle = vg;
+  c.fillRect(0, 0, WW, HH);
   return cv;
 }
 
@@ -370,8 +461,9 @@ function buildFloor(map, theme, rng){
 function genLevel(level, opts){
   opts = opts || {};
   const rng = mulberry32((opts.seed !== undefined ? opts.seed : 0xC0FFEE) ^ (level * 2654435761));
-  let cols = clamp(29 + level * 2, 29, 51);
-  let rows = clamp(19 + Math.floor(level * 1.2), 19, 31);
+  // Arenas are twice the previous size in each dimension.
+  let cols = clamp(57 + level * 4, 57, 101);
+  let rows = clamp(39 + Math.floor(level * 2.4), 39, 61);
   if (cols % 2 === 0) cols++;
   if (rows % 2 === 0) rows++;
   const map = new TileMap(cols, rows);
@@ -428,7 +520,7 @@ function genLevel(level, opts){
     }
   }
   // carve open arenas
-  const roomN = 2 + Math.floor(level / 2);
+  const roomN = 5 + level;
   for (let i = 0; i < roomN; i++) {
     const rw = 3 + 2 * ((rng() * 2) | 0), rh = 3 + 2 * ((rng() * 2) | 0);
     const rc = 1 + 2 * ((rng() * ((cols - rw - 2) / 2)) | 0);
@@ -454,7 +546,7 @@ function genLevel(level, opts){
   }
   // watchtowers: indestructible pillars dropped into open ground for cover.
   // Only placed where they leave the surrounding cells walkable.
-  const towerN = Math.min(6, 1 + Math.floor(level / 2));
+  const towerN = Math.min(22, 5 + level * 2);
   let tTries = 0;
   for (let i = 0; i < towerN && tTries < 200; ) {
     tTries++;
@@ -505,9 +597,9 @@ function genLevel(level, opts){
 
   // barrels: floor cells away from spawn
   const barrels = [];
-  const want = 7 + level;
+  const want = 22 + level * 3;
   let tries = 0;
-  while (barrels.length < want && tries++ < 500) {
+  while (barrels.length < want && tries++ < 3000) {
     const c = 1 + ((rng() * (cols - 2)) | 0), r = 1 + ((rng() * (rows - 2)) | 0);
     if (map.get(c, r) !== 0) continue;
     const p = map.center(c, r);
@@ -515,7 +607,12 @@ function genLevel(level, opts){
     if (barrels.some(b => Math.abs(b.c - c) + Math.abs(b.r - r) < 3)) continue;
     barrels.push({ c, r });
   }
-  const theme = opts.theme ? THEMES[opts.theme % THEMES.length] : THEMES[(level - 1) % THEMES.length];
+  let theme;
+  if (opts.theme !== undefined && opts.theme !== null) theme = THEMES[opts.theme % THEMES.length];
+  else if (SETTINGS && SETTINGS.location === "random") theme = THEMES[(rng() * THEMES.length) | 0];
+  else if (SETTINGS && SETTINGS.location !== undefined && SETTINGS.location !== "rotate")
+    theme = THEMES[(+SETTINGS.location || 0) % THEMES.length];
+  else theme = THEMES[(level - 1) % THEMES.length];
   return { map, theme, shape, floorCv: buildFloor(map, theme, rng), playerSpawn: ps, barrels, rng };
 }
 

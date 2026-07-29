@@ -27,48 +27,45 @@
 
 <div id="ui">
 
-  <!-- ============ MAIN MENU ============ -->
+  <!-- ============ MAIN MENU — the only menu; every option lives here ============ -->
   <div class="screen active" id="scr-main">
-    <div class="panel center">
-      <div class="eyebrow">// Tactical Combat Simulator</div>
-      <h1 class="title">Alpha Tank<span>Maze Bombers</span></h1>
-      <div class="subtitle">Adaptive AI &bull; Destructible arenas &bull; Zero mercy</div>
-      <div class="menu-buttons">
-        <button class="btn primary" data-act="play">&#9654;&nbsp; Deploy</button>
-        <button class="btn" data-act="modes">Operation Type</button>
-        <button class="btn" data-act="how">Field Manual</button>
-        <button class="btn" data-act="settings">Systems Config</button>
-        <button class="btn" data-act="records">Service Record</button>
+    <div class="menu-fx" aria-hidden="true">
+      <span class="mfx-ring r1"></span><span class="mfx-ring r2"></span><span class="mfx-ring r3"></span>
+      <span class="mfx-poly p1"></span><span class="mfx-poly p2"></span><span class="mfx-poly p3"></span>
+      <span class="mfx-scan"></span>
+    </div>
+    <div class="panel menu-panel">
+      <div class="menu-head">
+        <div class="eyebrow">// Tactical Combat Simulator</div>
+        <h1 class="title">Alpha Tank<span>Maze Bombers</span></h1>
+        <div class="subtitle">Adaptive AI &bull; Destructible arenas &bull; Zero mercy</div>
       </div>
-      <div class="best" id="main-best">BEST SCORE — 0</div>
-      <div class="mode-line" id="main-mode">OPERATION — CAMPAIGN</div>
-      <!-- CrazyGames username, shown only when the player is signed in.
-           No in-game login flow and no external login options. -->
-      <div class="operator" id="cg-operator"></div>
-      <!-- Optional rewarded-ad offer: pre-deploy supply drop -->
-      <div class="offer" id="offer-main"></div>
-      <!-- In-game banner: static screen only, never during gameplay -->
-      <div class="cg-banner" id="banner-menu"></div>
-      <div class="foot">v1.0 &bull; procedural audio &bull; no external assets</div>
-    </div>
-  </div>
 
-  <!-- ============ OPERATION TYPE (GAME MODES) ============ -->
-  <div class="screen" id="scr-modes">
-    <div class="panel">
-      <h2 class="scr-h">Operation Type</h2>
-      <div class="scr-sub">Pick how you want to fight</div>
-      <div class="mode-list" id="mode-list"></div>
-      <div class="btn-row"><button class="btn" data-act="back-main">Return</button></div>
-    </div>
-  </div>
+      <button class="btn primary deploy-btn" data-act="play">&#9654;&nbsp; Deploy</button>
 
-  <!-- ============ FIELD MANUAL ============ -->
-  <div class="screen" id="scr-how">
-    <div class="panel">
-      <h2 class="scr-h">Field Manual</h2>
-      <div class="scr-sub">Controls &amp; hostile intel</div>
-      <div class="intel">
+      <div class="tabs" role="tablist">
+        <button class="tab on" data-act="tab" data-tab="tab-op">Operation</button>
+        <button class="tab" data-act="tab" data-tab="tab-manual">Manual</button>
+        <button class="tab" data-act="tab" data-tab="tab-config">Config</button>
+        <button class="tab" data-act="tab" data-tab="tab-record">Record</button>
+      </div>
+
+      <!-- ---- Operation: mode + location + the optional ad offer ---- -->
+      <div class="tabpanel on" id="tab-op">
+        <div class="tab-h">Operation type</div>
+        <div class="mode-list" id="mode-list"></div>
+        <div class="tab-h">Location</div>
+        <div class="set-grid">
+          <label for="set-location">Deployment zone</label>
+          <select id="set-location"></select>
+        </div>
+        <!-- Optional rewarded-ad offer: pre-deploy supply drop -->
+        <div class="offer" id="offer-main"></div>
+      </div>
+
+      <!-- ---- Field manual ---- -->
+      <div class="tabpanel" id="tab-manual">
+        <div class="intel">
         <div class="intel-h">Controls — Keyboard &amp; Mouse</div>
         <div class="k">W A S D / Arrows</div><div class="v">Drive &mdash; ZQSD on AZERTY keyboards</div>
         <div class="k">Mouse</div><div class="v">Aim turret</div>
@@ -119,57 +116,58 @@
         Destroyed hostiles drop <b>field supplies</b>: repair, shield, rapid, tri-shot, overdrive, bombs, EMP.
         The AI Director watches you — play well and it sharpens the opposition.</div>
       </div>
-      <div class="btn-row"><button class="btn" data-act="back-main">Return</button></div>
-    </div>
-  </div>
-
-  <!-- ============ SETTINGS ============ -->
-  <div class="screen" id="scr-set">
-    <div class="panel">
-      <h2 class="scr-h">Systems Config</h2>
-      <div class="scr-sub">Audio &bull; Render &bull; Combat</div>
-      <div class="set-grid">
-        <label for="set-sfx">SFX Volume</label>
-        <input type="range" id="set-sfx" min="0" max="1" step="0.05">
-        <label for="set-music">Music Volume</label>
-        <input type="range" id="set-music" min="0" max="1" step="0.05">
-        <label for="set-shake">Screen Shake</label>
-        <input type="range" id="set-shake" min="0" max="1.5" step="0.1">
-        <label for="set-quality">Render Quality</label>
-        <select id="set-quality">
-          <option value="auto">Auto (adaptive)</option>
-          <option value="high">High</option>
-          <option value="med">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <label for="set-diff">Difficulty</label>
-        <select id="set-diff">
-          <option value="adaptive">Adaptive (AI Director)</option>
-          <option value="easy">Recruit</option>
-          <option value="normal">Soldier</option>
-          <option value="hard">Veteran</option>
-        </select>
-        <label>CRT Scanlines</label>
-        <label class="tog"><input type="checkbox" id="set-crt"><span class="sw"></span></label>
-        <label>FPS Counter</label>
-        <label class="tog"><input type="checkbox" id="set-fps"><span class="sw"></span></label>
       </div>
-      <div class="btn-row"><button class="btn primary" data-act="set-back">Save &amp; Return</button></div>
-    </div>
-  </div>
 
-  <!-- ============ RECORDS ============ -->
-  <div class="screen" id="scr-rec">
-    <div class="panel">
-      <h2 class="scr-h">Service Record</h2>
-      <div class="scr-sub">Top operations</div>
-      <ol id="rec-list"></ol>
-      <div class="hr"></div>
-      <div id="rec-stats"></div>
-      <div class="btn-row">
-        <button class="btn" data-act="back-main">Return</button>
-        <button class="btn warn small" data-act="wipe">Wipe Data</button>
+      <!-- ---- Systems config ---- -->
+      <div class="tabpanel" id="tab-config">
+        <div class="set-grid">
+          <label for="set-sfx">SFX Volume</label>
+          <input type="range" id="set-sfx" min="0" max="1" step="0.05">
+          <label for="set-music">Music Volume</label>
+          <input type="range" id="set-music" min="0" max="1" step="0.05">
+          <label for="set-shake">Screen Shake</label>
+          <input type="range" id="set-shake" min="0" max="1.5" step="0.1">
+          <label for="set-quality">Render Quality</label>
+          <select id="set-quality">
+            <option value="ultra">Ultra</option>
+            <option value="auto">Auto (adaptive)</option>
+            <option value="high">High</option>
+            <option value="med">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <label for="set-diff">Difficulty</label>
+          <select id="set-diff">
+            <option value="adaptive">Adaptive (AI Director)</option>
+            <option value="easy">Recruit</option>
+            <option value="normal">Soldier</option>
+            <option value="hard">Veteran</option>
+          </select>
+          <label>CRT Scanlines</label>
+          <label class="tog"><input type="checkbox" id="set-crt"><span class="sw"></span></label>
+          <label>FPS Counter</label>
+          <label class="tog"><input type="checkbox" id="set-fps"><span class="sw"></span></label>
+        </div>
       </div>
+
+      <!-- ---- Service record ---- -->
+      <div class="tabpanel" id="tab-record">
+        <ol id="rec-list"></ol>
+        <div class="hr"></div>
+        <div id="rec-stats"></div>
+        <div class="btn-row">
+          <button class="btn warn small" data-act="wipe">Wipe Data</button>
+        </div>
+      </div>
+
+      <div class="menu-foot">
+        <div class="best" id="main-best">BEST SCORE — 0</div>
+        <div class="mode-line" id="main-mode">OPERATION — CAMPAIGN</div>
+        <!-- CrazyGames username, shown only when the player is signed in. -->
+        <div class="operator" id="cg-operator"></div>
+      </div>
+      <!-- In-game banner: static screen only, never during gameplay -->
+      <div class="cg-banner" id="banner-menu"></div>
+      <div class="foot">v1.1 &bull; procedural audio &bull; no external assets</div>
     </div>
   </div>
 
@@ -180,7 +178,6 @@
       <h2 class="scr-h">Paused</h2>
       <div class="menu-buttons" style="margin-top:18px;">
         <button class="btn primary" data-act="resume">Resume</button>
-        <button class="btn" data-act="settings">Systems Config</button>
         <button class="btn" data-act="restart">Restart Operation</button>
         <button class="btn warn" data-act="quit">Abort to Menu</button>
       </div>
