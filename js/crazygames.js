@@ -8,10 +8,12 @@
      banner — responsive banners on static (non-gameplay) screens
      game   — gameplay start/stop, loading start/stop, happytime,
               completion %, game context, muteAudio setting
-     user   — account availability / current user / system info
-     data   — cross-device progress save (localStorage-compatible)
+     user   — the game's ONLY account system: availability, current
+              user, auth prompt, auth listener, friends, token
+     data   — the game's ONLY progress store, synced across devices
 
    Docs: https://docs.crazygames.com/sdk/intro/
+         https://docs.crazygames.com/requirements/account-integration/
    All SDK access funnels through this module so the rest of the
    game never touches window.CrazyGames directly, and so the game
    stays fully playable when the SDK is absent, disabled (non
@@ -27,9 +29,11 @@ const CG = {
   adPending: false,      // ad requested, awaiting adStarted/adError
   adPlaying: false,      // ad actually on screen (audio muted, game paused)
   sdkMute: false,        // platform muteAudio setting
-  user: null,            // logged-in CrazyGames user (or null)
   device: "desktop",     // "desktop" | "tablet" | "mobile"
   appType: "web",        // "web" | "pwa" | "google_play_store" | "apple_store"
+  /* Set by main.js. Called when the player signs in while the game is
+     already running, so the UI and the loaded profile can follow. */
+  onAccountChange: null,
 
   _gameplayOn: false,
   _lastRewardT: -1e9,    // performance.now()/1000 of last rewarded ad shown
@@ -42,8 +46,16 @@ const CG = {
 
   /* ================================================================
      INIT
+     Awaited before the game reads any saved data: the data module
+     preloads the player's progress during SDK.init().
      ================================================================ */
   async init(){
+    await this._connect();
+    // Always runs, SDK or not: it decides whether progress lives in the
+    // data module or in the off-platform localStorage fallback.
+    this.storage.init();
+  },
+  async _connect(){
     const sdk = window.CrazyGames && window.CrazyGames.SDK;
     if (!sdk) {
       // SDK script unavailable (offline, self-hosted build, blocked): play on.
@@ -74,16 +86,8 @@ const CG = {
       });
     } catch (e) { /* settings unsupported — ignore */ }
 
-    // user module (optional: greeting + feedback context only)
-    try {
-      if (sdk.user.isUserAccountAvailable) {
-        this.user = await sdk.user.getUser();
-        sdk.user.addAuthListener((u) => { this.user = u; });
-      }
-      const info = sdk.user.systemInfo;
-      if (info && info.device && info.device.type) this.device = info.device.type;
-      if (info && info.applicationType) this.appType = info.applicationType;
-    } catch (e) { /* not logged in / unavailable — ignore */ }
+    // the CrazyGames account: read on every launch, before any save data
+    await this.account.init();
 
     // adblock detection: never block play, only gate the ad-reward path
     try {
@@ -94,39 +98,226 @@ const CG = {
   sdk(){ return this.available ? window.CrazyGames.SDK : null; },
 
   /* ================================================================
-     DATA MODULE — cross-device progress save
-     Same API as localStorage; falls back to localStorage when the
-     SDK is unavailable. Existing localStorage saves are migrated on
-     first run so no player loses progress.
+     USER MODULE — the CrazyGames account is the game's only identity
+     ----------------------------------------------------------------
+     Integration scenario: "Use CrazyGames profile" (account-integration
+     requirements). The game has no back-end and no in-game account, so
+     per the requirements:
+       · the operator name and avatar come from the CrazyGames account,
+         there is no separate in-game username or avatar
+       · a signed-out player is a guest and can play everything
+       · the only way to sign in is the platform auth prompt, offered as
+         an optional secondary button — never the main CTA, and never
+         opened automatically
+       · there is no in-game login form, no external login provider
+         (Facebook / Google / email) and no log-out
+       · signing in mid-session is picked up by the auth listener
+     ================================================================ */
+  account: {
+    available: false,     // user.isUserAccountAvailable
+    user: null,           // { __dangerousUserId, username, profilePictureUrl }
+    /* The CrazyGames userId, kept only to notice that a *different*
+       account now owns the session (several players share one device).
+       It is never used to authenticate anything — the docs are explicit
+       that __dangerousUserId must not be trusted for that. */
+    id: null,
+    systemInfo: null,
+    _prompting: false,
+    _friendsBusy: false,
+    _friendsT: -1e9,
+
+    mod(){
+      const s = CG.sdk();
+      return s && s.user ? s.user : null;
+    },
+    isGuest(){ return !this.user; },
+    name(){ return this.user ? this.user.username : null; },
+    avatar(){ return this.user ? this.user.profilePictureUrl : null; },
+
+    async init(){
+      const u = this.mod();
+      if (!u) return;
+      try {
+        this.systemInfo = u.systemInfo || null;
+        const info = this.systemInfo;
+        if (info && info.device && info.device.type) CG.device = info.device.type;
+        if (info && info.applicationType) CG.appType = info.applicationType;
+      } catch (e) { /* system info unsupported — defaults stand */ }
+      /* The account system is unavailable on other domains that embed the
+         game, so availability is checked before any account call. */
+      try { this.available = !!u.isUserAccountAvailable; } catch (e) { this.available = false; }
+      if (!this.available) return;
+      /* The current account is requested on every launch, as required:
+         one device can be shared by several players, and a player can
+         change their username or avatar between sessions. */
+      try { this.user = await u.getUser(); } catch (e) { this.user = null; }
+      this.id = this.user ? this.user.__dangerousUserId : null;
+      /* A log-in while the game is open reaches the game here. A log-out
+         never does — the platform reloads the whole page in that case,
+         so the game simply starts again from the beginning. */
+      try { u.addAuthListener((nu) => this._onAuth(nu)); } catch (e) {}
+    },
+
+    _onAuth(user){
+      const prevId = this.id;
+      this.user = user || null;
+      this.id = this.user ? this.user.__dangerousUserId : null;
+      if (typeof CG.onAccountChange === "function")
+        CG.onAccountChange(this.user, prevId !== this.id);
+    },
+
+    /* Player-initiated sign-in, from the optional menu button only.
+       Resolves to the user, or null when nothing changed. */
+    async login(){
+      const u = this.mod();
+      if (!u || !this.available || this._prompting) return null;
+      this._prompting = true;
+      try {
+        const user = await u.showAuthPrompt();
+        this._onAuth(user);
+        return user;
+      } catch (e) {
+        const code = e && e.code;
+        if (code === "userAlreadySignedIn") {
+          // already signed in elsewhere on the page — just re-read them
+          try { this._onAuth(await u.getUser()); } catch (e2) {}
+        } else if (code !== "userCancelled" && code !== "showAuthPromptInProgress") {
+          console.warn("[CG] auth prompt failed:", e);
+        }
+        return null;
+      } finally {
+        this._prompting = false;
+      }
+    },
+
+    /* The player's CrazyGames friends, shown in the service record.
+       Honours the documented limits: one active call, 250ms between
+       calls, page size 1-50. */
+    async friends(size){
+      const u = this.mod();
+      if (!u || !this.available || !this.user || this._friendsBusy) return null;
+      const now = performance.now();
+      if (now - this._friendsT < 300) return null;
+      this._friendsT = now;
+      this._friendsBusy = true;
+      try {
+        return await u.listFriends({ page: 1, size: clamp(size || 10, 1, 50) });
+      } catch (e) {
+        // userNotAuthenticated / rateLimited / requestInProgress / other
+        console.warn("[CG] list friends failed:", e);
+        return null;
+      } finally {
+        this._friendsBusy = false;
+      }
+    },
+
+    /* Signed JWT identifying the player, for a game back-end to verify
+       server-side with the CrazyGames public key. This build stores all
+       progress in the data module and has no back-end of its own, so
+       nothing calls it during play — it is the documented hook for
+       linking a server account to a CrazyGames userId. The token is
+       never decoded on the client, and never stored: the SDK refreshes
+       it, so it is fetched again whenever it is needed. */
+    async token(){
+      const u = this.mod();
+      if (!u || !this.available) return null;
+      try {
+        return await u.getUserToken();
+      } catch (e) {
+        // userNotAuthenticated (guest) / unexpectedError
+        return null;
+      }
+    },
+  },
+
+  /* ================================================================
+     DATA MODULE — the only place this game stores progress
+     ----------------------------------------------------------------
+     The requirements are explicit: rely fully on the data module for
+     BOTH guests and signed-in players, and do not keep a local save
+     alongside it. The SDK itself keeps guest progress in localStorage
+     and moves it onto the account the moment a guest signs in, so none
+     of that has to be handled here.
+
+     localStorage is touched in exactly two cases:
+       · the one-time migration of a pre-SDK save into the data module
+       · there is no SDK on the page at all (self-hosted / offline copy),
+         where there is no data module to rely on
      ================================================================ */
   storage: {
+    MIGRATED: "atmb_data_migrated",
+    PREFIX: "atmb_",
+    usingData: false,     // false = off-platform localStorage fallback
+
     _mod(){
       const s = CG.sdk();
       return s && s.data ? s.data : null;
     },
-    getItem(key){
+    _lsGet(k){ try { return localStorage.getItem(k); } catch (e) { return null; } },
+    _lsSet(k, v){ try { localStorage.setItem(k, v); } catch (e) {} },
+    _lsDel(k){ try { localStorage.removeItem(k); } catch (e) {} },
+
+    /* Moves a pre-SDK localStorage save into the data module once, so a
+       player who played this game before it used the data module keeps
+       their progress. Cloud data always wins: an existing key is never
+       overwritten. After this the game never reads localStorage again. */
+    init(){
       const m = this._mod();
-      if (m) {
+      this.usingData = !!m;
+      if (!m) return;
+      try {
+        if (m.getItem(this.MIGRATED)) return;
+        const keys = [];
         try {
-          const v = m.getItem(key);
-          if (v !== null && v !== undefined) return v;
-          // migrate a pre-SDK localStorage save into the data module
-          const legacy = localStorage.getItem(key);
-          if (legacy !== null) { try { m.setItem(key, legacy); } catch (e) {} return legacy; }
-          return null;
-        } catch (e) { /* fall through to localStorage */ }
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.indexOf(this.PREFIX) === 0) keys.push(k);
+          }
+        } catch (e) { /* storage blocked — nothing to migrate */ }
+        for (const k of keys) {
+          if (m.getItem(k) != null) continue;
+          const v = this._lsGet(k);
+          if (v !== null) m.setItem(k, v);
+        }
+        m.setItem(this.MIGRATED, "1");
+      } catch (e) { this._fail(e); }
+    },
+
+    /* dataModuleDisabled means the "Progress Save" toggle was not set in
+       the submission flow. Losing every save is worse than the fallback,
+       so the game keeps saving locally and says so in the console. */
+    _fail(e){
+      if (e && e.code === "dataModuleDisabled") {
+        console.warn("[CG] data module disabled — select the Data Module option in the submission flow");
+        this.usingData = false;
+      } else {
+        // dataLimitExcedeed (1MB) or other — this save is ~2KB
+        console.warn("[CG] data module error:", e);
       }
-      try { return localStorage.getItem(key); } catch (e) { return null; }
+    },
+
+    getItem(key){
+      const m = this.usingData ? this._mod() : null;
+      if (!m) return this._lsGet(key);
+      try {
+        const v = m.getItem(key);
+        return v === undefined ? null : v;
+      } catch (e) {
+        this._fail(e);
+        return this.usingData ? null : this._lsGet(key);
+      }
     },
     setItem(key, value){
-      const m = this._mod();
-      if (m) { try { m.setItem(key, value); } catch (e) { console.warn("[CG] data setItem failed", e); } }
-      try { localStorage.setItem(key, value); } catch (e) {}
+      const m = this.usingData ? this._mod() : null;
+      if (!m) { this._lsSet(key, value); return; }
+      try { m.setItem(key, value); }
+      catch (e) { this._fail(e); if (!this.usingData) this._lsSet(key, value); }
     },
     removeItem(key){
-      const m = this._mod();
-      if (m) { try { m.removeItem(key); } catch (e) {} }
-      try { localStorage.removeItem(key); } catch (e) {}
+      const m = this.usingData ? this._mod() : null;
+      if (!m) { this._lsDel(key); return; }
+      try { m.removeItem(key); }
+      catch (e) { this._fail(e); if (!this.usingData) this._lsDel(key); }
     },
   },
 

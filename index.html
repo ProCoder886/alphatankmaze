@@ -46,6 +46,13 @@
       <span class="mfx-poly p1"></span><span class="mfx-poly p2"></span><span class="mfx-poly p3"></span>
       <span class="mfx-scan"></span>
     </div>
+
+    <!-- ============ CRAZYGAMES ACCOUNT ============
+         The game's only identity. Signed in: the CrazyGames username and
+         avatar. Signed out: an optional "Log in with CrazyGames" button —
+         top-right corner, never the main CTA, never opened by itself, and
+         no other login method exists. Filled in by renderAccount(). -->
+    <div class="cg-account" id="cg-account" hidden></div>
     <div class="panel menu-panel">
       <div class="menu-head">
         <div class="eyebrow">// Tactical Combat Simulator</div>
@@ -182,6 +189,8 @@
         <ol id="rec-list"></ol>
         <div class="hr"></div>
         <div id="rec-stats"></div>
+        <!-- CrazyGames friends, shown only to a signed-in player -->
+        <div class="friends" id="cg-friends" hidden></div>
         <div class="btn-row">
           <button class="btn warn small" data-act="wipe">Wipe Data</button>
         </div>
@@ -190,8 +199,6 @@
       <div class="menu-foot">
         <div class="best" id="main-best">BEST SCORE — 0</div>
         <div class="mode-line" id="main-mode">OPERATION — CAMPAIGN</div>
-        <!-- CrazyGames username, shown only when the player is signed in. -->
-        <div class="operator" id="cg-operator"></div>
       </div>
       <!-- In-game banner: static screen only, never during gameplay -->
       <div class="cg-banner" id="banner-menu"></div>
@@ -250,7 +257,7 @@
 
 <!-- ================================================================
      ENGINE SCRIPTS — load order matters (shared top-level globals):
-       0. crazygames.js — CrazyGames SDK v3: ads, banners, data, game events
+       0. crazygames.js — CrazyGames SDK v3: account, data, ads, banners
        1. config.js   — CFG / quality / math utils / seeded RNG / SAVE
        2. audio.js    — procedural Web Audio SFX + adaptive music
        3. input.js    — keyboard / mouse / gamepad / touch

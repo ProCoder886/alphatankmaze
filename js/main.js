@@ -545,13 +545,123 @@ function refreshMainBest(){
   document.getElementById("main-best").textContent =
     "BEST SCORE — " + fmt(SAVE.data.stats.best) + "   ·   SALVAGE — " + fmt(GAME.salvage());
 }
-/* Shows the signed-in CrazyGames username. No in-game account, no login
-   flow and no external login options — guests simply see nothing. */
-function renderOperator(){
-  const el = document.getElementById("cg-operator");
+/* ================================================================
+   CRAZYGAMES ACCOUNT (SDK user module)
+   ----------------------------------------------------------------
+   The CrazyGames account is the only identity this game has: there is
+   no in-game account, no in-game username or avatar, no external login
+   provider and no log-out. A signed-out player is a guest and can play
+   everything; the log-in button is an optional extra in the top-right
+   corner of the menu, and the auth prompt is never opened by itself.
+   ================================================================ */
+function renderAccount(){
+  const el = document.getElementById("cg-account");
   if (!el) return;
-  const name = CG.user && CG.user.username;
-  el.textContent = name ? "OPERATOR — " + name : "";
+  const A = CG.account;
+  // No account system on domains that embed the game (and off-platform):
+  // nothing to show, and no log-in that could work.
+  if (!A.available) { el.hidden = true; el.textContent = ""; return; }
+  el.textContent = "";
+  el.hidden = false;
+  const role = document.createElement("span");
+  role.className = "cg-role";
+  if (A.isGuest()) {
+    el.className = "cg-account guest";
+    role.textContent = "Playing as guest";
+    const btn = document.createElement("button");
+    btn.className = "btn small cg-login";
+    btn.dataset.act = "cg-login";
+    btn.textContent = "Log in with CrazyGames";
+    const note = document.createElement("span");
+    note.className = "cg-note";
+    note.textContent = "Optional — saves progress to your account";
+    el.append(role, btn, note);
+    return;
+  }
+  el.className = "cg-account signed";
+  const img = document.createElement("img");
+  img.className = "cg-avatar";
+  img.alt = "";
+  img.referrerPolicy = "no-referrer";
+  img.onerror = () => { img.style.display = "none"; };
+  if (A.avatar()) img.src = A.avatar();
+  const box = document.createElement("div");
+  box.className = "cg-id";
+  role.textContent = "Operator";
+  const name = document.createElement("span");
+  name.className = "cg-name";
+  name.textContent = A.name() || "";
+  box.append(role, name);
+  el.append(img, box);
+}
+/* The player's CrazyGames friends, listed in the service record. Fetched
+   once per session (and again after a sign-in), never on a timer — the
+   SDK rate-limits this call. */
+let _friendsLoaded = false;
+async function renderFriends(reset){
+  const el = document.getElementById("cg-friends");
+  if (!el) return;
+  if (reset) { _friendsLoaded = false; el.hidden = true; el.textContent = ""; }
+  if (!CG.account.available || CG.account.isGuest()) {
+    el.hidden = true; el.textContent = "";
+    return;
+  }
+  if (_friendsLoaded) return;
+  _friendsLoaded = true;
+  const page = await CG.account.friends(8);
+  const list = page && Array.isArray(page.friends) ? page.friends : null;
+  if (!list) { _friendsLoaded = false; return; }   // rate-limited / failed: retry later
+  if (!list.length) { el.hidden = true; return; }
+  el.textContent = "";
+  el.hidden = false;
+  const h = document.createElement("div");
+  h.className = "friends-h";
+  h.textContent = "CrazyGames friends — " + (page.total || list.length);
+  const ul = document.createElement("ul");
+  ul.className = "friends-list";
+  for (const f of list) {
+    const li = document.createElement("li");
+    const img = document.createElement("img");
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    img.onerror = () => { img.style.display = "none"; };
+    if (f.profilePictureUrl) img.src = f.profilePictureUrl;
+    const nm = document.createElement("span");
+    nm.textContent = f.username || "";
+    li.append(img, nm);
+    ul.append(li);
+  }
+  el.append(h, ul);
+}
+/* A guest signed in, or a different account took over the session (one
+   device, several players). The data module has already switched to that
+   account's progress, so the profile is re-read from it — persisting the
+   copy held in memory would write the previous player's progress over
+   it. Nothing here logs anyone out: a log-out reloads the whole page. */
+function reloadProfile(){
+  SAVE.load();
+  SETTINGS = SAVE.data.settings;
+  resolveQuality();
+  syncSettingsUI();
+  AUDIO.applyVolumes();
+  refreshMainBest();
+  renderRecords();
+  if (GAME.state !== "menu") return;
+  if (SAVE.data.lastMode && MODES[SAVE.data.lastMode]) GAME.mode = SAVE.data.lastMode;
+  renderModes();
+  renderLocations();
+  renderSquadSizes();
+  renderDifficulties();
+  refreshModeLabel();
+  renderOffer("offer-main", "supply");
+}
+function onAccountChange(user, changed){
+  renderAccount();
+  renderFriends(true);
+  if (!changed) return;
+  reloadProfile();
+  if (user && GAME.state === "playing")
+    GAME.showBanner("SIGNED IN — " + user.username, "Progress saves to your CrazyGames account", 2.6);
 }
 function renderRecords(){
   const list = document.getElementById("rec-list");
@@ -846,13 +956,17 @@ function bindUI(){
       case "rw-ad":  claimReward(btn.dataset.rw, btn.dataset.cont, true); break;
       case "rw-buy": claimReward(btn.dataset.rw, btn.dataset.cont, false); break;
 
+      /* --- CrazyGames log in: the platform auth prompt, opened only by
+             this button. The auth listener does the rest. --- */
+      case "cg-login": CG.account.login(); break;
+
       case "play": lockLandscape(); GAME.startRun(); break;
       /* Every menu section is a tab inside the single main menu. */
       case "tab": {
         const id = btn.dataset.tab;
         document.querySelectorAll("#scr-main .tab").forEach(t => t.classList.toggle("on", t === btn));
         document.querySelectorAll("#scr-main .tabpanel").forEach(pn => pn.classList.toggle("on", pn.id === id));
-        if (id === "tab-record") renderRecords();
+        if (id === "tab-record") { renderRecords(); renderFriends(); }
         break;
       }
       case "mode-pick":
@@ -1076,8 +1190,9 @@ function frame(tms){
 window.addEventListener("load", async () => {
   cv = document.getElementById("game");
   ctx = cv.getContext("2d");
-  // Initialise the CrazyGames SDK before anything reads saved data:
-  // the data module preloads the player's cross-device progress.
+  /* Initialise the CrazyGames SDK before anything reads saved data: the
+     account is read here (every launch, since a device can be shared)
+     and the data module preloads that account's progress. */
   await CG.init();
   CG.loadingStart();
   SAVE.load();
@@ -1102,7 +1217,10 @@ window.addEventListener("load", async () => {
   syncSettingsUI();
   refreshMainBest();
   if (SAVE.data.lastMode && MODES[SAVE.data.lastMode]) GAME.mode = SAVE.data.lastMode;
-  renderOperator();
+  /* From here a sign-in can arrive at any moment through the SDK auth
+     listener, and the loaded profile and the menu are ready to follow it. */
+  CG.onAccountChange = onAccountChange;
+  renderAccount();
   refreshModeLabel();
   renderModes();
   renderLocations();

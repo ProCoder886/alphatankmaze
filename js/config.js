@@ -116,8 +116,10 @@ const SAVE = {
   },
   load(){
     try {
-      // CG.storage = CrazyGames data module (cross-device) with a
-      // localStorage fallback and automatic migration of old saves.
+      /* CG.storage = the CrazyGames data module: the single store for
+         every player, guest or signed in, synced across their devices.
+         It falls back to localStorage only where there is no SDK at all
+         (a self-hosted copy of this repository). */
       const raw = CG.storage.getItem(this.key);
       const d = this.defaults();
       if (raw) {

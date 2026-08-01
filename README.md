@@ -13,7 +13,7 @@ index.html          Page markup: canvas, CRT overlay, all UI screens, script loa
 css/
   style.css         Tactical console UI: panels, buttons, settings, screens
 js/
-  crazygames.js     CrazyGames HTML5 SDK v3 integration (ads, banners, data, events)
+  crazygames.js     CrazyGames HTML5 SDK v3 integration (account, data, ads, banners)
 js/                 Engine, split into 10 modules — load order matters
   config.js         CFG constants, quality tiers, math utilities, seeded RNG, SAVE
   audio.js          Procedural Web Audio SFX + generative adaptive music
@@ -98,6 +98,66 @@ All SDK access is funnelled through `js/crazygames.js` (the `CG` object), so the
 game stays fully playable when the SDK is absent, running off-platform
 (`environment === "disabled"`), or blocked by an adblocker.
 
+## CrazyGames account integration
+
+The CrazyGames account is the **only** account this game has, per the
+[account integration requirements](https://docs.crazygames.com/requirements/account-integration/).
+There is no in-game account, no in-game username or avatar, no login form, no
+external login provider and no log-out. The implemented scenario is **"Use
+CrazyGames profile"**: the game has no back-end, so the player's identity is
+read from the user module and all progress lives in the data module.
+
+### Identity — SDK `user` module
+
+| Requirement | How it is met |
+|---|---|
+| Check availability before any account call | `user.isUserAccountAvailable` is read first; when it is false (the game embedded on another domain) no account UI renders at all |
+| Request the current account **every** launch | `user.getUser()` runs inside `CG.init()`, before any save data is read, so a shared device and a changed username/avatar are both picked up |
+| Show the player's profile | The top-right card on the menu shows the CrazyGames username and `profilePictureUrl`; a broken avatar hides itself and leaves the name |
+| Guests can play everything | A signed-out player is a guest — no gate, no prompt, nothing withheld |
+| Login button allowed, but not the main CTA | Top-right corner, plain `.btn.small`, visually quieter than **Deploy**; it is the only entry point to `user.showAuthPrompt()` |
+| Never open the auth prompt automatically | `showAuthPrompt()` is called from that button and nowhere else; `userCancelled`, `userAlreadySignedIn` and `showAuthPromptInProgress` are all handled |
+| Detect a sign-in during play | `user.addAuthListener` re-reads the profile from the data module, refreshes the menu and tells the player in-run — the run is never interrupted |
+| Log-out | Nothing to do: the platform reloads the page, so the game restarts from the menu |
+| Friends | `user.listFriends()` fills the friends list in the *Record* tab (one active call, 250 ms apart, page size clamped to 1-50) |
+| `userId` | Kept only to notice that a *different* account now owns the session; never used to authenticate anything, as `__dangerousUserId` must not be trusted |
+| `getUserToken()` | Wrapped as `CG.account.token()`. Progress lives in the data module and this build has no back-end, so nothing calls it during play — it is the documented hook for linking a server account to a CrazyGames `userId`. It is never decoded client-side and never stored |
+
+### Progress — SDK `data` module
+
+Progress, settings, records, lifetime stats and salvage are one JSON document
+saved through the data module, which syncs it across every device the player
+signs in on. The requirement is to rely on it *fully* — for guests as well as
+signed-in players — and not keep a local save beside it, so:
+
+* the game never writes its own `localStorage` entry while the SDK is present;
+* guest progress is handled by the SDK itself (it stores guests locally and
+  moves that data onto the account the first time a guest signs in, which is why
+  no linking or merging code is needed here);
+* a save written by an older build of this game is copied into the data module
+  **once**, on first run after the update, and never read again — existing cloud
+  data always wins and is never overwritten;
+* `dataModuleDisabled` (the *Progress Save* toggle missing from the submission
+  flow) falls back to `localStorage` and says so in the console rather than
+  silently losing every save.
+
+`localStorage` is otherwise touched in exactly one case: no SDK on the page at
+all — a self-hosted or offline copy of this repository — where there is no data
+module to rely on.
+
+### Local testing
+
+Served from `localhost` / `127.0.0.1` the SDK returns its documented hardcoded
+values, so every path can be exercised without deploying:
+
+```
+?user_response=logged_out           play as a guest (shows the login button)
+?user_response=user2                a different account
+?show_auth_prompt_response=user2    what the login button signs you in as
+?show_auth_prompt_response=user_cancelled
+?user_account_available=false       the game embedded on another domain
+```
+
 ### Where ads appear
 
 | Placement | Type | Trigger |
@@ -136,9 +196,9 @@ appear during active gameplay, and are never chained.
   boss kill or new personal best, `reportGameCompletedPercentage` (sector 10 =
   100 %), `setGameContext`/`clearGameContext`, and the platform `muteAudio`
   setting applied at the master audio bus.
-* **data** — progress is saved through the data module for cross-device sync,
-  with a localStorage fallback and automatic migration of pre-SDK saves.
-* **user** — account availability, current user and system info (device type).
+* **data** / **user** — see [CrazyGames account integration](#crazygames-account-integration)
+  above. System info also supplies the device type, which picks the starting
+  render-quality tier.
 * **ad** — `hasAdblock` detection that gates only the ad-reward path, never play.
 
 ### Basic Launch behaviour

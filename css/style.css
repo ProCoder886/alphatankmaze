@@ -258,14 +258,67 @@ ol#rec-list li .lv{color:var(--ink-dim);}
   letter-spacing:.16em;color:var(--hostile-hot);text-transform:uppercase;
 }
 @media (max-width:560px){ .mode-list{grid-template-columns:1fr;} }
-.operator{
-  margin-top:5px;font-family:var(--font-num);font-size:11.5px;
-  letter-spacing:.16em;color:var(--friend);text-transform:uppercase;
-}
 .best b{color:var(--hostile-hot);}
 .foot{margin-top:22px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:rgba(143,163,173,0.55);}
 .center{text-align:center;}
 .hr{height:1px;background:var(--edge);margin:16px 0;}
+
+/* ============================================================
+   CRAZYGAMES ACCOUNT — profile chip / optional log-in
+   Compliance notes (docs.crazygames.com account integration):
+   - The card sits in the top-right corner, clear of the panel, so
+     the log-in offer is never the main call to action and never
+     blocks a guest from deploying.
+   - The log-in button is a plain .btn.small, deliberately quieter
+     than the Deploy button, and it is the ONLY login entry point:
+     there is no in-game form, no external provider and no log-out.
+   - Signed in, the card is pure information: the CrazyGames
+     username and avatar, no separate in-game identity.
+   ============================================================ */
+.cg-account{
+  position:absolute;top:18px;right:18px;z-index:3;
+  display:flex;align-items:center;gap:10px;
+  max-width:min(280px,44vw);
+  padding:9px 13px;
+  background:linear-gradient(165deg, rgba(30,44,58,0.55), rgba(16,24,33,0.62));
+  border:1px solid var(--edge);
+  clip-path:polygon(11px 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%,0 11px);
+  animation:fade-up .5s .4s both;
+}
+.cg-account.guest{flex-direction:column;align-items:flex-end;gap:7px;text-align:right;}
+.cg-avatar{
+  width:34px;height:34px;flex:0 0 34px;object-fit:cover;
+  border:1px solid var(--friend);background:var(--deck-2);
+  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+}
+.cg-id{display:flex;flex-direction:column;min-width:0;}
+.cg-role{
+  font-size:9.5px;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--ink-dim);font-weight:600;
+}
+.cg-name{
+  font-family:var(--font-num);font-size:13px;font-weight:700;letter-spacing:.06em;
+  color:var(--friend-hot);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.cg-login{font-size:11px;padding:8px 13px 7px;letter-spacing:.14em;white-space:nowrap;}
+.cg-note{
+  font-size:9.5px;letter-spacing:.1em;color:rgba(143,163,173,0.7);
+  text-transform:uppercase;line-height:1.4;
+}
+
+/* ---- CrazyGames friends (service record) ---- */
+.friends{margin-top:16px;}
+.friends-h{
+  font-size:10.5px;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--hostile-hot);margin-bottom:9px;font-weight:700;
+}
+ul.friends-list{list-style:none;display:flex;flex-wrap:wrap;gap:8px 16px;}
+ul.friends-list li{display:flex;align-items:center;gap:8px;font-family:var(--font-num);font-size:12px;}
+ul.friends-list img{
+  width:22px;height:22px;object-fit:cover;border:1px solid var(--edge);background:var(--deck-2);
+}
+ul.friends-list span{color:var(--ink-dim);}
 
 /* ============================================================
    CRAZYGAMES SDK — rewarded-ad offers, banners, ad overlay
@@ -366,6 +419,11 @@ ol#rec-list li .lv{color:var(--ink-dim);}
   .intel{grid-template-columns:1fr;}
   input[type=range]{width:130px;}
   .offer .btn-row{flex-direction:column;}
+  /* The panel takes the full width here, so the account card tucks into
+     the corner above it and loses the note. */
+  .cg-account{top:8px;right:8px;padding:6px 9px;max-width:52vw;}
+  .cg-note,.cg-account.guest .cg-role{display:none;}
+  .cg-account.guest{padding:0;border:0;background:none;}
 }
 
 /* ============================================================
@@ -487,7 +545,7 @@ h1.title::after{
 @keyframes scanline{to{top:110%;}}
 
 @media (prefers-reduced-motion: reduce){
-  .menu-panel,.menu-head *,.deploy-btn,.tabs,.tabpanel,
+  .menu-panel,.menu-head *,.deploy-btn,.tabs,.tabpanel,.cg-account,
   .mfx-ring,.mfx-poly,.mfx-scan,h1.title::after{animation:none !important;}
 }
 @media (max-width:560px){
@@ -552,7 +610,17 @@ body.portrait-block #rotate-gate{display:flex;}
   .offer{margin:12px 0 2px;padding:10px 12px 12px;}
   .offer-desc{font-size:12px;}
   .btn{font-size:13px;padding:10px 16px 9px;}
-  .foot,.operator,.mode-line{font-size:10px;}
+  .foot,.mode-line{font-size:10px;}
+  /* A phone held sideways has no room for the account card beside the
+     panel, so it shrinks to the avatar + name (or just the log-in
+     button) and the explanatory note is dropped. */
+  .cg-account{top:8px;right:8px;padding:6px 9px;gap:7px;max-width:38vw;}
+  .cg-avatar{width:26px;height:26px;flex-basis:26px;}
+  .cg-name{font-size:11.5px;}
+  .cg-login{font-size:10px;padding:7px 10px 6px;}
+  .cg-note,.cg-account.guest .cg-role{display:none;}
+  /* a bare button in the corner: the whole card is the log-in offer */
+  .cg-account.guest{padding:0;border:0;background:none;}
   .cg-banner.has-banner{height:50px;margin:10px auto 2px;}
   .intel{font-size:11.5px;gap:5px 16px;}
   .menu-foot{margin-top:8px;}
