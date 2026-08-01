@@ -437,7 +437,8 @@ const GAME = {
     INPUT.setPointerLock(true);
     AUDIO.resume();
     AUDIO.startEngine();
-    AUDIO.startMusic();
+    AUDIO.startMusic("combat");     // menu score crossfades into the fight
+    AUDIO.duckMusic(false);
     this.touchHintT = INPUT.usingTouch ? 6 : 0;
     this.hint("move", INPUT.usingTouch
       ? "LEFT THUMB DRIVE — RIGHT THUMB AIM & FIRE — TAP LEFT SIDE FOR BOMB"
@@ -651,9 +652,11 @@ const GAME = {
       comp = [bossTypeForLevel(this.level), "grunt", "grunt"];
       this.showBanner("⚠ " + (ENEMY_TYPES[bossTypeForLevel(this.level)].title || "BOSS") + " DETECTED", "Neutralize the boss", 3);
       AUDIO.bossAlert();
+      AUDIO.setMusicMode("boss");   // darker mode, faster floor, tritone drone
       CAM.tzoom = 0.88;
       this.hint("boss", "COMMAND UNIT — DODGE THE CHARGE, PUNISH THE SPIN-UP");
     } else {
+      AUDIO.setMusicMode("combat");
       comp = (this.modifier && this.modifier.force)
         ? this.modifier.force.slice()
         : DIRECTOR.compose(M.survival ? 1 + Math.floor(n / 2) : this.level, DIRECTOR.budget(this.level, n));
@@ -786,6 +789,8 @@ const GAME = {
       CAM.addShake(0.8);
       this.addSalvage(100);
       POWERS.grantRandom(2);
+      AUDIO.setMusicMode("combat");  // the pressure lifts with the boss
+      AUDIO.stingerWin();
       CG.happytime();              // platform celebration: boss down
       for (let i = 0; i < 4; i++)
         setTimeoutSafe(() => explode(e.x + rand(-50, 50), e.y + rand(-50, 50), { radius: 80, dmg: 0, breakTiles: true }), i * 140);
@@ -884,7 +889,8 @@ const GAME = {
     CG.gameplayStart();
     INPUT.setPointerLock(true);
     AUDIO.startEngine();
-    AUDIO.startMusic();
+    AUDIO.startMusic("combat");
+    AUDIO.duckMusic(false);
     this.showBanner("FIELD REPAIR COMPLETE", "Hull restored — shield online", 2.4);
     fxSpawnPortal(pl.x, pl.y, "#8ffff6");
   },
@@ -1058,6 +1064,8 @@ const GAME = {
     const clearOffers = ["bonus", "power", "armour", "salvagerun"];
     renderOffer("offer-level", clearOffers[this.level % clearOffers.length]);
     AUDIO.setEngine(0);
+    AUDIO.duckMusic(true);
+    AUDIO.stingerWin();
   },
   /* Advance to the next sector. A midgame ad may run here — a sector
      transition is exactly the "level change" break the SDK asks for.
@@ -1096,6 +1104,8 @@ const GAME = {
     this.timescale = 1;
     CG.gameplayStop();
     AUDIO.setEngine(0);
+    AUDIO.duckMusic(true);
+    if (this.finished) AUDIO.stingerWin(); else AUDIO.stingerFail();
     // fold run stats into lifetime stats
     const S = SAVE.data.stats;
     S.kills += this.stats.kills;
@@ -1154,6 +1164,7 @@ const GAME = {
     INPUT.setPointerLock(false);
     CG.gameplayStop();
     AUDIO.setEngine(0);
+    AUDIO.duckMusic(true);       // score goes behind glass, not silent
   },
   resume(){
     if (this.state !== "paused") return;
@@ -1162,6 +1173,7 @@ const GAME = {
     CG.gameplayStart();
     INPUT.setPointerLock(true);
     AUDIO.startEngine();
+    AUDIO.duckMusic(false);
   },
   quitToMenu(){
     this.state = "menu";
@@ -1169,7 +1181,9 @@ const GAME = {
     CG.gameplayStop();
     CG.clearContext();
     AUDIO.setEngine(0);
-    AUDIO.stopMusic();
+    // the menu keeps its own score rather than falling silent
+    AUDIO.menuMusic();
+    AUDIO.duckMusic(false);
     showScreen("scr-main");
     refreshMainBest();
   },

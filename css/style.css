@@ -86,6 +86,8 @@ body.crt-on #crt{display:block;}
   animation:scr-in .28s ease-out;
 }
 .screen.active{display:flex;}
+/* Boot: no screen at all until the game knows which one to open. */
+body.booting .screen{display:none !important;}
 @keyframes scr-in{from{opacity:0;transform:scale(1.015);}to{opacity:1;transform:scale(1);}}
 @media (prefers-reduced-motion: reduce){
   .screen,.btn,.title-sweep{animation:none !important;transition:none !important;}
@@ -262,6 +264,72 @@ ol#rec-list li .lv{color:var(--ink-dim);}
 .foot{margin-top:22px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:rgba(143,163,173,0.55);}
 .center{text-align:center;}
 .hr{height:1px;background:var(--edge);margin:16px 0;}
+
+/* ============================================================
+   FIRST-RUN BRIEFING — four onboarding screens
+   Built entirely from the existing design language (chamfered
+   panel, eyebrow, .intel key/value grid, .btn) so it reads as
+   part of the same console rather than a bolted-on tutorial.
+   ============================================================ */
+.intro-panel{max-width:min(720px,94vw);}
+.intro-head{text-align:center;margin-bottom:6px;}
+.intro-step{
+  font-family:var(--font-num);font-size:11px;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--ink-dim);margin-top:6px;
+}
+/* Fixed height so the panel never jumps as the screens change; the
+   longest screen sets it and the rest simply sit inside. */
+.intro-body{position:relative;margin:16px 0 4px;min-height:246px;}
+.intro-slide{display:none;}
+.intro-slide.on{display:block;animation:intro-in .3s ease-out;}
+@keyframes intro-in{from{opacity:0;transform:translateX(14px);}to{opacity:1;transform:none;}}
+.intro-slide.back.on{animation:intro-in-back .3s ease-out;}
+@keyframes intro-in-back{from{opacity:0;transform:translateX(-14px);}to{opacity:1;transform:none;}}
+.intro-lead{
+  font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:12px;
+  border-left:2px solid var(--friend);padding-left:12px;
+}
+.intro-note{
+  margin-top:12px;font-size:11.5px;line-height:1.5;color:var(--ink-dim);
+  font-family:var(--font-num);
+}
+/* One control list per input device; main.js keeps body.is-touch in sync. */
+.for-touch{display:none;}
+body.is-touch .for-desktop{display:none;}
+body.is-touch .for-touch{display:grid;}
+.intro-dots{display:flex;justify-content:center;gap:9px;margin:14px 0 2px;}
+.intro-dots i{
+  width:9px;height:9px;display:block;background:rgba(120,160,180,0.3);
+  border:1px solid var(--edge);
+  clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);
+  transition:background .2s, transform .2s;
+}
+.intro-dots i.on{background:var(--friend);transform:scale(1.35);}
+.intro-dots i.done{background:rgba(70,224,216,0.45);}
+/* The final button carries the longest label in the game, so the nav row
+   keeps its type on one line rather than letting it wrap mid-phrase. */
+.intro-nav .btn{flex:1;text-align:center;white-space:nowrap;letter-spacing:.14em;}
+.intro-skip-row{display:flex;justify-content:center;margin-top:10px;}
+.intro-skip-row .btn{
+  text-align:center;border-color:transparent;background:none;
+  color:var(--ink-dim);letter-spacing:.16em;
+}
+.intro-skip-row .btn:hover{color:var(--ink);border-color:var(--edge);background:none;}
+@media (max-height:520px){
+  .intro-body{min-height:150px;margin:8px 0 2px;}
+  .intro-lead{font-size:12px;margin-bottom:8px;padding-left:9px;}
+  .intro-note{margin-top:8px;font-size:10.5px;}
+  .intro-step{font-size:10px;margin-top:3px;}
+  .intro-dots{margin:8px 0 0;}
+  .intro-skip-row{margin-top:6px;}
+}
+@media (max-height:440px){
+  .intro-body{min-height:120px;}
+  .intro-note{display:none;}
+}
+@media (prefers-reduced-motion: reduce){
+  .intro-slide.on,.intro-slide.back.on{animation:none !important;}
+}
 
 /* ============================================================
    CRAZYGAMES ACCOUNT — profile chip / optional log-in

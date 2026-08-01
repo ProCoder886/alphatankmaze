@@ -481,7 +481,9 @@ function renderMenuBackdrop(c, time){
 
 function render(time){
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  if (!WORLD.map || GAME.state === "menu") {
+  // the briefing sits on the command-deck backdrop too, even when it is
+  // replayed from the Manual tab after a sector has been generated
+  if (!WORLD.map || GAME.state === "menu" || GAME.state === "intro") {
     renderMenuBackdrop(ctx, time);
     return;
   }
@@ -545,6 +547,79 @@ function refreshMainBest(){
   document.getElementById("main-best").textContent =
     "BEST SCORE — " + fmt(SAVE.data.stats.best) + "   ·   SALVAGE — " + fmt(GAME.salvage());
 }
+/* ================================================================
+   FIRST-RUN BRIEFING
+   ----------------------------------------------------------------
+   Four screens explaining the objective, the controls, the firepower
+   and how the arena behaves. Shown once — the flag lives in the save,
+   so it travels with the player's CrazyGames account rather than with
+   the browser, and a second device does not re-run the briefing.
+
+   It is skippable from every screen, replayable from the Manual tab,
+   and it always hands off to the MAIN MENU. The game never opens
+   straight into a run.
+   ================================================================ */
+const INTRO = {
+  i: 0,
+  N: 4,
+  TITLES: ["Your Objective", "How To Play", "Your Firepower", "Reading The Arena"],
+  active(){ return GAME.state === "intro"; },
+  show(){
+    GAME.state = "intro";
+    this.i = 0;
+    this.render(0);
+    showScreen("scr-intro");
+    // the menu score is the briefing's score too, once audio is allowed
+    AUDIO.menuMusic();
+  },
+  render(dir){
+    const slides = document.querySelectorAll("#scr-intro .intro-slide");
+    slides.forEach((s, k) => {
+      s.classList.toggle("back", dir < 0);
+      s.classList.toggle("on", k === this.i);
+    });
+    const title = document.getElementById("intro-title");
+    if (title) title.textContent = this.TITLES[this.i] || "";
+    const step = document.getElementById("intro-step");
+    if (step) step.textContent = "Screen " + (this.i + 1) + " of " + this.N;
+    const dots = document.getElementById("intro-dots");
+    if (dots) {
+      dots.innerHTML = "";
+      for (let k = 0; k < this.N; k++) {
+        const d = document.createElement("i");
+        if (k === this.i) d.className = "on";
+        else if (k < this.i) d.className = "done";
+        dots.appendChild(d);
+      }
+    }
+    const prev = document.getElementById("intro-prev");
+    if (prev) prev.disabled = this.i === 0;
+    const next = document.getElementById("intro-next");
+    if (next) next.innerHTML = this.i === this.N - 1
+      ? "Enter Command Deck &nbsp;&#9654;" : "Next &nbsp;&#9654;";
+  },
+  go(step){
+    const n = clamp(this.i + step, 0, this.N - 1);
+    if (n === this.i) return;
+    this.i = n;
+    this.render(step);
+    AUDIO.uiPage(step > 0);
+  },
+  next(){
+    if (this.i >= this.N - 1) { this.finish(); return; }
+    this.go(1);
+  },
+  /* Seen or skipped, the answer is the same: never show it unprompted
+     again, and open the command deck. */
+  finish(){
+    SAVE.data.onboarded = true;
+    SAVE.persist();
+    GAME.state = "menu";
+    showScreen("scr-main");
+    refreshMainBest();
+  },
+};
+
 /* ================================================================
    CRAZYGAMES ACCOUNT (SDK user module)
    ----------------------------------------------------------------
@@ -945,11 +1020,17 @@ function bindUI(){
   document.getElementById("ui").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
-    if (btn.disabled || CG.busy()) return;   // no input while an ad is in flight
+    /* A control that cannot act still answers. Silence on a disabled
+       button reads as a broken interface; a short muted thud reads as
+       "not right now", which is the truth. */
+    if (btn.disabled) { AUDIO.uiDenied(); return; }
+    if (CG.busy()) return;                   // no input while an ad is in flight
     const act = btn.dataset.act;
     if (act === "play" || act === "retry" || act === "restart" || act === "next") AUDIO.uiDeploy();
-    else if (act === "tab" || act === "mode-pick") AUDIO.uiSelect();
-    else if (act === "quit" || act === "back-main") AUDIO.uiBack();
+    else if (act === "tab") AUDIO.uiTab();
+    else if (act === "mode-pick") AUDIO.uiSelect();
+    else if (act === "quit" || act === "back-main" || act === "intro-skip") AUDIO.uiBack();
+    else if (act === "intro-next" || act === "intro-prev") { /* INTRO plays its own page turn */ }
     else AUDIO.uiClick();
     switch (act) {
       /* --- CrazyGames rewarded-ad offers --- */
@@ -959,6 +1040,12 @@ function bindUI(){
       /* --- CrazyGames log in: the platform auth prompt, opened only by
              this button. The auth listener does the rest. --- */
       case "cg-login": CG.account.login(); break;
+
+      /* --- first-run briefing --- */
+      case "intro-next": INTRO.next(); break;
+      case "intro-prev": INTRO.go(-1); break;
+      case "intro-skip": INTRO.finish(); break;
+      case "intro-replay": INTRO.show(); break;
 
       case "play": lockLandscape(); GAME.startRun(); break;
       /* Every menu section is a tab inside the single main menu. */
@@ -1001,10 +1088,16 @@ function bindUI(){
   // live settings
   const onRange = (id, key) => {
     const el = document.getElementById(id);
+    let tickT = 0;
     el.addEventListener("input", () => {
       SETTINGS[key] = parseFloat(el.value);
       el.style.setProperty("--fill", (el.value / el.max * 100) + "%");
       AUDIO.applyVolumes();
+      /* A slider that moves in silence feels dead, but one tick per input
+         event is a machine-gun — rate-limit to something a hand can hear
+         as individual detents. */
+      const now = performance.now();
+      if (now - tickT > 55) { tickT = now; AUDIO.uiTick(el.value / el.max); }
       SAVE.persist();
     });
   };
@@ -1126,9 +1219,20 @@ function resize(){
   cv.height = Math.round(H * DPR);
 }
 
+/* The briefing carries one control list per input device. INPUT decides
+   which is current — and can change its mind when a hybrid laptop's
+   owner reaches for the mouse — so the body class tracks it. */
+let _touchClass = null;
+function syncInputClass(){
+  if (_touchClass === INPUT.usingTouch) return;
+  _touchClass = INPUT.usingTouch;
+  document.body.classList.toggle("is-touch", _touchClass);
+}
+
 let lastT = 0, acc = 0;
 function frame(tms){
   requestAnimationFrame(frame);
+  syncInputClass();
   const t = tms / 1000;
   let realDt = Math.min(0.1, t - lastT || 0.016);
   lastT = t;
@@ -1227,10 +1331,15 @@ window.addEventListener("load", async () => {
   renderSquadSizes();
   renderDifficulties();
   refreshModeLabel();             // reveals the squad control if a team mode is saved
-  renderOffer("offer-main", "supply");
-  CG.showBanner("banner-menu");
   INPUT.init(cv);
   bindUI();
+  syncInputClass();
+  /* Launch lands on the command deck — never straight into a run. A
+     first-time operator gets the four-screen briefing ahead of it, and
+     everyone else goes to the menu directly. */
+  if (SAVE.data.onboarded) showScreen("scr-main");
+  else INTRO.show();
+  document.body.classList.remove("booting");
   window.addEventListener("resize", resize);
   window.addEventListener("orientationchange", () => setTimeout(resize, 80));
   checkOrientation();

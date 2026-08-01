@@ -16,7 +16,7 @@ js/
   crazygames.js     CrazyGames HTML5 SDK v3 integration (account, data, ads, banners)
 js/                 Engine, split into 10 modules — load order matters
   config.js         CFG constants, quality tiers, math utilities, seeded RNG, SAVE
-  audio.js          Procedural Web Audio SFX + generative adaptive music
+  audio.js          Procedural Web Audio SFX, UI feedback, generative adaptive score
   input.js          Keyboard, mouse, gamepad, dual virtual touch sticks
   camera.js         Follow camera, look-ahead, trauma shake, zoom
   effects.js        Pooled particles, FX helpers, 2D lighting, decals, AI hearing
@@ -54,6 +54,25 @@ its key, its remaining charges and a cooldown sweep.
 Free Run and Training, chosen on the menu's *Operation* tab and remembered
 between sessions, along with a deployment **Location** (Random, rotating, or
 any of the sixteen zones).
+
+**First-run briefing** — the game always launches onto the command deck,
+never straight into a run. A player who has not seen it gets four screens
+first: the objective, the controls, the firepower and how to read the arena.
+The controls screen shows keyboard or touch instructions depending on the
+device in use. It can be skipped from any screen, replayed later from the
+*Manual* tab, and the "seen" flag lives in the save — so it travels with the
+player's CrazyGames account and a second device never repeats it.
+
+**Audio** — everything is synthesized at runtime; there are still no audio
+files. The menu and the briefing have their own unhurried *focus* score,
+which crossfades on a bar line into the combat score when you deploy, shifts
+to a darker, faster mode with a tritone drone for a boss wave, and drops
+behind a filter (rather than cutting out) while the game is paused. A shared
+feedback delay gives the whole mix depth, and the music bus filter opens as a
+fight escalates. Sector clears, boss kills and run endings land musical
+stingers keyed to whatever chord is playing. Every menu control answers with
+its own voice — hover, click, select, tab, toggle, back, page turn, deploy,
+and a muted thud when a control is disabled.
 
 **Main menu** — one screen holds everything: Operation (mode + location +
 optional bonus), Manual, Config and Record are tabs, not separate screens.
@@ -231,7 +250,7 @@ bonuses reachable.
 | iOS audio after interruption | `AudioContext` resumed from `touchend`/`click`, handling `interrupted` |
 | Mobile selection / magnifier | `user-select` (all prefixes), `-webkit-touch-callout`, `touch-action: none` |
 | CrazyGames App safe areas | `env(safe-area-inset-*)` applied to menus and to the canvas HUD |
-| Land in gameplay fast | Single click from menu to gameplay; `gameplayStart` fires at real play |
+| Land in gameplay fast | Single click from menu to gameplay; `gameplayStart` fires at real play. A first-time player sees the four-screen briefing first, skippable in one tap and never shown again |
 | Chromebook / low-end devices | Four quality tiers (Ultra default on desktop); phones and tablets step down to High, and the floor/decal buffers scale with the tier |
 | Whole arena visible | Minimap sits in the top-right corner and always fits the full map |
 | Landscape only on phones | A rotate gate pauses the game and asks the player to turn the device; the layout compacts for short landscape screens and touch targets grow |

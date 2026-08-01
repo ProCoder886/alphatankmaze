@@ -9,7 +9,11 @@
 <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
 <link rel="stylesheet" href="css/style.css">
 </head>
-<body class="menu-open">
+<!-- `booting` holds every screen back until the SDK has answered and the
+     game knows whether this is a first run (briefing) or a returning
+     operator (command deck). The animated backdrop covers the wait, so
+     neither screen ever flashes up and gets replaced. -->
+<body class="menu-open booting">
 <canvas id="game"></canvas>
 <div id="crt"></div>
 <div id="safe-probe" aria-hidden="true"></div>
@@ -38,6 +42,114 @@
 </div>
 
 <div id="ui">
+
+  <!-- ============ FIRST-RUN BRIEFING ============
+       Four screens shown once to a new operator: what the game is, how
+       to drive it, what the firepower does and how the arena behaves.
+       The "seen" flag lives in the save (so it follows the CrazyGames
+       account across devices), it can be skipped at any point, and the
+       Manual tab can replay it later. It hands off to the MAIN MENU,
+       never straight into a run. -->
+  <div class="screen" id="scr-intro">
+    <div class="panel intro-panel">
+      <div class="intro-head">
+        <div class="eyebrow">// Mission briefing</div>
+        <h2 class="scr-h" id="intro-title">Your Objective</h2>
+        <div class="intro-step" id="intro-step">Screen 1 of 4</div>
+      </div>
+
+      <div class="intro-body">
+
+        <!-- ---- 1. what the game is ---- -->
+        <section class="intro-slide on" data-slide="0">
+          <p class="intro-lead">You command a single tank inside a destructible maze.
+          Hostile armour is already hunting you — the arena is the weapon you both share.</p>
+          <div class="intel">
+            <div class="k">THE MISSION</div>
+            <div class="v">Destroy every hostile in a wave. Clear all the waves and the sector is secured.</div>
+            <div class="k">ADVANCE</div>
+            <div class="v">Each sector is a fresh arena — new location, new layout, tougher opposition.</div>
+            <div class="k">SURVIVE</div>
+            <div class="v">Your hull is your life. Lose it and the operation ends, but your score is banked.</div>
+            <div class="k">YOUR RECORD</div>
+            <div class="v">Score, kills and sectors save to your CrazyGames account and follow you to any device.</div>
+          </div>
+        </section>
+
+        <!-- ---- 2. how to play ---- -->
+        <section class="intro-slide" data-slide="1">
+          <p class="intro-lead">Drive with one hand, aim with the other. The turret turns
+          independently of the hull, so you can retreat and keep firing.</p>
+          <div class="intel for-desktop">
+            <div class="k">W A S D / ARROWS</div><div class="v">Drive &mdash; ZQSD on AZERTY keyboards</div>
+            <div class="k">MOUSE</div><div class="v">Aim the turret</div>
+            <div class="k">LEFT MOUSE (hold)</div><div class="v">Fire the cannon</div>
+            <div class="k">SPACE</div><div class="v">Plant a demolition bomb</div>
+            <div class="k">SHIFT (hold)</div><div class="v">Overdrive boost</div>
+            <div class="k">KEYS 1 &ndash; 7</div><div class="v">Fire a superpower</div>
+            <div class="k">P &nbsp;&bull;&nbsp; ESC</div><div class="v">Pause &bull; release the mouse cursor</div>
+          </div>
+          <div class="intel for-touch">
+            <div class="k">LEFT THUMB</div><div class="v">Drive &mdash; anywhere on the left half</div>
+            <div class="k">RIGHT THUMB</div><div class="v">Aim, and hold to fire automatically</div>
+            <div class="k">TAP LEFT SIDE</div><div class="v">Plant a demolition bomb</div>
+            <div class="k">TAP A POWER CIRCLE</div><div class="v">Fire that superpower (rack, top right)</div>
+            <div class="k">PAUSE BUTTON</div><div class="v">Top-left corner of the HUD</div>
+          </div>
+          <div class="intro-note">Gamepad — left stick drives, right stick aims and fires,
+          A / RT fires, X bombs, the D-pad and B / Y / R3 fire superpowers.</div>
+        </section>
+
+        <!-- ---- 3. firepower ---- -->
+        <section class="intro-slide" data-slide="2">
+          <p class="intro-lead">Your cannon is the least of what you carry. Seven superpowers
+          sit in the rack in the top-right corner, each with its own charges and cooldown.</p>
+          <div class="intel">
+            <div class="k">EVERY POWER IS AIMED</div>
+            <div class="v">They land on your crosshair, not on your own tank. Put the mark on a group and fire.</div>
+            <div class="k">CHARGES ARE EARNED</div>
+            <div class="v">Kill streaks, cleared waves and cleared sectors all restock the rack &mdash; play well, hit harder.</div>
+            <div class="k">FIELD SUPPLIES</div>
+            <div class="v">Wrecked hostiles drop repair, shield, rapid fire, tri-shot, overdrive, bombs and EMP.</div>
+            <div class="k">COMBO CHAIN</div>
+            <div class="v">Kills within four seconds of each other multiply your score, up to &times;6. Keep the pressure on.</div>
+          </div>
+        </section>
+
+        <!-- ---- 4. reading the arena ---- -->
+        <section class="intro-slide" data-slide="3">
+          <p class="intro-lead">The maze is not scenery. Most of it can be rebuilt by force,
+          and the opposition is watching how you fight.</p>
+          <div class="intel">
+            <div class="k" style="color:#c8825a">BRICK WALLS</div>
+            <div class="v">Break. Blast a new route, or drop one on a hostile that thought it had cover.</div>
+            <div class="k" style="color:#9fb4c4">STEEL WALLS</div>
+            <div class="v">Hold, and bounce your shells once &mdash; bank a shot around a corner into a blind spot.</div>
+            <div class="k" style="color:#ff9a3c">BARRELS &amp; MINES</div>
+            <div class="v">Chain-detonate. A good opening shot can clear half a corridor for you.</div>
+            <div class="k" style="color:#ffd05c">EMPLACEMENTS</div>
+            <div class="v">Gun nests, lighthouses and bunkers hold ground. Level every one for a bonus.</div>
+            <div class="k" style="color:#ff4d5e">BOSSES</div>
+            <div class="v">Every third sector fields one. Their heavy attacks are telegraphed &mdash; watch the wind-up.</div>
+            <div class="k" style="color:#8ffff6">THE AI DIRECTOR</div>
+            <div class="v">Reads your performance live and sharpens the opposition to match it.</div>
+          </div>
+          <div class="intro-note">That is the whole briefing. Choose an operation on the
+          command deck and deploy when you are ready.</div>
+        </section>
+
+      </div>
+
+      <div class="intro-dots" id="intro-dots" aria-hidden="true"></div>
+      <div class="btn-row intro-nav">
+        <button class="btn" data-act="intro-prev" id="intro-prev">&#9664;&nbsp; Back</button>
+        <button class="btn primary" data-act="intro-next" id="intro-next">Next &nbsp;&#9654;</button>
+      </div>
+      <div class="intro-skip-row">
+        <button class="btn small" data-act="intro-skip">Skip briefing</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ============ MAIN MENU — the only menu; every option lives here ============ -->
   <div class="screen active" id="scr-main">
@@ -88,6 +200,9 @@
 
       <!-- ---- Field manual ---- -->
       <div class="tabpanel" id="tab-manual">
+        <div class="btn-row" style="margin:0 0 14px;">
+          <button class="btn small" data-act="intro-replay">&#9654;&nbsp; Replay the briefing</button>
+        </div>
         <div class="intel">
         <div class="intel-h">Controls — Keyboard &amp; Mouse</div>
         <div class="k">W A S D / Arrows</div><div class="v">Drive &mdash; ZQSD on AZERTY keyboards</div>

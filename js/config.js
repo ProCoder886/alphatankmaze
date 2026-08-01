@@ -106,6 +106,10 @@ const SAVE = {
   defaults(){
     return {
       v: 2,
+      /* Set once the first-run briefing has been seen or skipped. It
+         lives in the save rather than in localStorage, so it follows the
+         player's CrazyGames account to every device they play on. */
+      onboarded: false,
       settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "master", location: "random", teamSize: 3 },
       scores: [],
       /* salvage = the non-ad currency players can spend on the same
@@ -128,6 +132,7 @@ const SAVE = {
         d.stats = Object.assign(d.stats, p.stats || {});
         d.scores = Array.isArray(p.scores) ? p.scores : [];
         d.lastMode = p.lastMode;
+        d.onboarded = !!p.onboarded;
         /* v2 raised the baseline difficulty and made Master the default.
            Saves written before that carried the old default, so they are
            moved onto the new one once; anything the player had actually

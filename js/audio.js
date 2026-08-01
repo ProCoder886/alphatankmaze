@@ -10,9 +10,16 @@
    ================================================================ */
 const AUDIO = {
   ctx: null, master: null, sfxBus: null, musicBus: null,
+  musicFade: null, musicFilter: null,      // crossfade + "focus" filter sweep
+  fxSend: null, delay: null,               // shared delay/space send
   noiseBuf: null,
   engineOsc: null, engineOsc2: null, engineFilter: null, engineGain: null,
-  music: { playing: false, step: 0, nextT: 0, intensity: 0.2, timer: null, chord: 0 },
+  music: {
+    playing: false, step: 0, nextT: 0, intensity: 0.2, timer: null, chord: 0,
+    mode: "menu",        // "menu" | "combat" | "boss"
+    want: "menu",        // mode to switch to on the next bar
+    ducked: false,       // paused / overlay: filter and level pulled down
+  },
   _lastPing: 0,
   /* Muted while a CrazyGames video ad plays, or when the platform
      muteAudio setting is on. Applied at the master bus so it
@@ -32,8 +39,45 @@ const AUDIO = {
     this.master.connect(comp);
     this.sfxBus = this.ctx.createGain();
     this.sfxBus.connect(this.master);
+
+    /* Music chain: notes -> fade -> filter -> bus -> master.
+       The fade node belongs to the crossfade between menu and combat
+       music; the bus stays under the player's volume slider so the two
+       never fight over the same gain. The filter is what makes the menu
+       read as "focus" music and opens up as a fight escalates. */
     this.musicBus = this.ctx.createGain();
     this.musicBus.connect(this.master);
+    this.musicFilter = this.ctx.createBiquadFilter();
+    this.musicFilter.type = "lowpass";
+    this.musicFilter.frequency.value = 900;
+    this.musicFilter.Q.value = 0.6;
+    this.musicFilter.connect(this.musicBus);
+    this.musicFade = this.ctx.createGain();
+    this.musicFade.gain.value = 1;
+    this.musicFade.connect(this.musicFilter);
+
+    /* One shared feedback delay, used as a send by music and by the
+       bigger SFX. A little space behind the sounds is most of what
+       separates a synthesized game from a scored one, and a single
+       delay line costs almost nothing on a weak device. */
+    this.fxSend = this.ctx.createGain();
+    this.fxSend.gain.value = 1;
+    this.delay = this.ctx.createDelay(1.0);
+    this.delay.delayTime.value = 0.26;
+    const fb = this.ctx.createGain();
+    fb.gain.value = 0.34;
+    const dFilter = this.ctx.createBiquadFilter();
+    dFilter.type = "lowpass";
+    dFilter.frequency.value = 2000;
+    const dOut = this.ctx.createGain();
+    dOut.gain.value = 0.5;
+    this.fxSend.connect(this.delay);
+    this.delay.connect(dFilter);
+    dFilter.connect(fb);
+    fb.connect(this.delay);          // feedback loop
+    dFilter.connect(dOut);
+    dOut.connect(this.master);
+
     // pre-render 1s of white noise
     const len = this.ctx.sampleRate;
     this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -49,6 +93,11 @@ const AUDIO = {
       const p = this.ctx.resume();
       if (p && typeof p.catch === "function") p.catch(() => {});
     }
+    /* Browsers refuse to start audio before a gesture, so the menu score
+       cannot begin at boot — it starts on the player's first touch of the
+       page instead, which is the earliest moment it is allowed to. */
+    if (this.ctx && !this.music.playing && typeof GAME !== "undefined" &&
+        (GAME.state === "menu" || GAME.state === "intro")) this.startMusic("menu");
   },
   applyVolumes(){
     if (!this.ctx) return;
@@ -77,7 +126,32 @@ const AUDIO = {
     g.gain.exponentialRampToValueAtTime(Math.max(0.001, vol), t + atk);
     g.gain.exponentialRampToValueAtTime(0.0001, t + (o.dur || 0.1));
     osc.connect(g); g.connect(o.bus || this.sfxBus);
+    this._send(g, o.send);
     osc.start(t); osc.stop(t + (o.dur || 0.1) + 0.05);
+    /* A second voice a few cents away turns a bare oscillator into a
+       chorused one — the cheapest way to make a synth sound produced. */
+    if (o.detune) {
+      const osc2 = this.ctx.createOscillator();
+      osc2.type = o.type || "sine";
+      osc2.frequency.setValueAtTime((o.f || 440) * (1 + o.detune), t);
+      if (o.f2 !== undefined)
+        osc2.frequency.exponentialRampToValueAtTime(Math.max(20, o.f2 * (1 + o.detune)), t + (o.dur || 0.1));
+      const g2 = this.ctx.createGain();
+      g2.gain.setValueAtTime(0.0001, t);
+      g2.gain.exponentialRampToValueAtTime(Math.max(0.001, vol * 0.6), t + atk);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t + (o.dur || 0.1));
+      osc2.connect(g2); g2.connect(o.bus || this.sfxBus);
+      this._send(g2, o.send);
+      osc2.start(t); osc2.stop(t + (o.dur || 0.1) + 0.05);
+    }
+  },
+  /* Taps a voice into the shared delay at the given amount (0..1). */
+  _send(node, amount){
+    if (!amount || !this.fxSend) return;
+    const s = this.ctx.createGain();
+    s.gain.value = amount;
+    node.connect(s);
+    s.connect(this.fxSend);
   },
   noise(o){
     if (!this.ctx) return;
@@ -97,6 +171,7 @@ const AUDIO = {
     g.gain.exponentialRampToValueAtTime(Math.max(0.001, vol), t + (o.attack || 0.005));
     g.gain.exponentialRampToValueAtTime(0.0001, t + (o.dur || 0.2));
     src.connect(f); f.connect(g); g.connect(o.bus || this.sfxBus);
+    this._send(g, o.send);
     src.start(t); src.stop(t + (o.dur || 0.2) + 0.05);
   },
 
@@ -167,24 +242,83 @@ const AUDIO = {
     this.tone({ t: t + 0.07, f: 780, dur: 0.08, type: "triangle", vol: 0.14 });
     this.tone({ t: t + 0.14, f: 1170, dur: 0.16, type: "triangle", vol: 0.14 });
   },
-  uiClick(){ this.resume(); this.tone({ f: 740, f2: 620, dur: 0.05, type: "triangle", vol: 0.1 }); },
-  /* --- menu feedback --- */
-  uiHover(){ this.tone({ f: 1150, dur: 0.025, type: "sine", vol: 0.035 }); },
-  uiSelect(){
+  /* ================================================================
+     MENU / UI FEEDBACK
+     ----------------------------------------------------------------
+     Every control in the menus answers, and each kind of answer is a
+     different voice: hovering, choosing, confirming, going back,
+     toggling, refusing and deploying are all distinguishable with the
+     screen switched off. All of them route a little signal into the
+     shared delay so the console sounds like a room rather than a
+     speaker. resume() is called from the noisiest of them because a
+     browser will not start audio until the player touches the page.
+     ================================================================ */
+  uiClick(){
+    this.resume();
     const t = this.now();
-    this.tone({ t, f: 620, dur: 0.05, type: "triangle", vol: 0.11 });
-    this.tone({ t: t + 0.05, f: 930, dur: 0.07, type: "triangle", vol: 0.10 });
+    this.tone({ t, f: 740, f2: 620, dur: 0.05, type: "triangle", vol: 0.1, send: 0.12 });
+    this.noise({ t, dur: 0.03, filter: "highpass", ff: 3200, vol: 0.05 });
+  },
+  /* Deliberately tiny: a hover sound is heard hundreds of times a
+     session and has to sit under everything else. */
+  uiHover(){
+    this.resume();
+    this.tone({ f: 1180, f2: 1320, dur: 0.03, type: "sine", vol: 0.03, send: 0.1 });
+  },
+  uiSelect(){
+    this.resume();
+    const t = this.now();
+    this.tone({ t, f: 620, dur: 0.05, type: "triangle", vol: 0.1, send: 0.14 });
+    this.tone({ t: t + 0.05, f: 930, dur: 0.08, type: "triangle", vol: 0.09, detune: 0.004, send: 0.18 });
+    this.noise({ t, dur: 0.04, filter: "highpass", ff: 4200, vol: 0.04 });
+  },
+  /* Tab changes get their own softer two-note figure so switching
+     sections never sounds like committing to something. */
+  uiTab(){
+    this.resume();
+    const t = this.now();
+    this.tone({ t, f: 880, dur: 0.04, type: "sine", vol: 0.07, send: 0.14 });
+    this.tone({ t: t + 0.04, f: 1170, dur: 0.06, type: "sine", vol: 0.06, send: 0.2 });
   },
   uiToggle(on){
-    this.tone({ f: on ? 700 : 480, f2: on ? 980 : 360, dur: 0.07, type: "square", vol: 0.09 });
+    this.resume();
+    this.tone({ f: on ? 700 : 480, f2: on ? 980 : 360, dur: 0.07, type: "square", vol: 0.09, send: 0.12 });
+    this.noise({ dur: 0.04, filter: "bandpass", ff: on ? 2600 : 1400, q: 2, vol: 0.05 });
   },
-  uiBack(){ this.tone({ f: 520, f2: 380, dur: 0.07, type: "triangle", vol: 0.09 }); },
-  uiDeploy(){
+  uiBack(){
+    this.resume();
     const t = this.now();
-    this.tone({ t, f: 330, dur: 0.10, type: "sawtooth", vol: 0.13 });
-    this.tone({ t: t + 0.09, f: 495, dur: 0.10, type: "sawtooth", vol: 0.12 });
-    this.tone({ t: t + 0.18, f: 660, dur: 0.22, type: "triangle", vol: 0.14 });
-    this.noise({ t, dur: 0.35, filter: "lowpass", ff: 400, ff2: 1600, vol: 0.12 });
+    this.tone({ t, f: 620, dur: 0.05, type: "triangle", vol: 0.09, send: 0.14 });
+    this.tone({ t: t + 0.05, f: 415, f2: 360, dur: 0.09, type: "triangle", vol: 0.08, send: 0.18 });
+  },
+  /* A control that cannot be used still answers — silence reads as a
+     broken button, a short muted thud reads as "not now". */
+  uiDenied(){
+    this.resume();
+    this.tone({ f: 240, f2: 180, dur: 0.09, type: "square", vol: 0.07 });
+    this.noise({ dur: 0.06, filter: "lowpass", ff: 700, vol: 0.05 });
+  },
+  /* Sliders tick as they move, quietly and rate-limited by the caller. */
+  uiTick(v){
+    this.tone({ f: 900 + clamp(v || 0, 0, 1) * 700, dur: 0.018, type: "sine", vol: 0.028 });
+  },
+  /* Page turn for the onboarding briefing. */
+  uiPage(fwd){
+    this.resume();
+    const t = this.now();
+    this.noise({ t, dur: 0.14, filter: "bandpass", ff: fwd ? 900 : 700, ff2: fwd ? 2400 : 420, q: 1.2, vol: 0.07 });
+    this.tone({ t, f: fwd ? 520 : 460, f2: fwd ? 780 : 350, dur: 0.1, type: "triangle", vol: 0.07, send: 0.16 });
+  },
+  uiDeploy(){
+    this.resume();
+    const t = this.now();
+    // rising three-note call over a filter sweep — the launch cue
+    this.tone({ t, f: 330, dur: 0.10, type: "sawtooth", vol: 0.13, detune: 0.006, send: 0.1 });
+    this.tone({ t: t + 0.09, f: 495, dur: 0.10, type: "sawtooth", vol: 0.12, detune: 0.006, send: 0.14 });
+    this.tone({ t: t + 0.18, f: 660, dur: 0.26, type: "triangle", vol: 0.14, detune: 0.005, send: 0.26 });
+    this.tone({ t: t + 0.18, f: 990, dur: 0.26, type: "sine", vol: 0.06, send: 0.3 });
+    this.noise({ t, dur: 0.4, filter: "lowpass", ff: 400, ff2: 2200, vol: 0.12, send: 0.15 });
+    this.tone({ t, f: 70, f2: 45, dur: 0.5, type: "sine", vol: 0.16 });   // sub thump
   },
   waveFanfare(){
     const t = this.now();
@@ -232,63 +366,208 @@ const AUDIO = {
     this.engineOsc = this.engineOsc2 = this.engineFilter = this.engineGain = null;
   },
 
-  /* --- generative adaptive music ---
-     16th-note scheduler; layers gate in with intensity (0..1):
-     bass pulse -> hats -> arpeggio -> kick/snare -> pad stabs   */
-  startMusic(){
+  /* ================================================================
+     GENERATIVE ADAPTIVE MUSIC
+     ----------------------------------------------------------------
+     A 16th-note scheduler with a lookahead, writing directly to the
+     Web Audio clock so the groove never drifts with the frame rate.
+     Three scores share it:
+
+       menu   — slow, wide, sparse. Deliberately low-information focus
+                music: a pad bed, a soft sub pulse and a bell figure
+                that wanders, with the bus filter closed down so it
+                sits behind the interface instead of competing with it.
+       combat — the layered score. Layers gate in with intensity, which
+                the world raises as hostiles close in, and the bus
+                filter opens with it so a fight audibly brightens.
+       boss    — combat with a darker mode, a faster floor and a
+                tritone drone under it.
+
+     Switching happens on a bar line through a short crossfade, so the
+     menu never cuts off mid-phrase when the player deploys.
+     ================================================================ */
+  SCALES: {
+    // minor pentatonic (menu) and natural minor + b5 tension (combat/boss)
+    menu:   [0, 3, 5, 7, 10, 12, 15],
+    combat: [0, 3, 5, 7, 10, 12],
+    boss:   [0, 1, 5, 6, 8, 11, 12],
+  },
+  PROGS: {
+    menu:   [0, -4, -2, -5],
+    combat: [0, -4, 3, -2],
+    boss:   [0, -1, -6, -4],
+  },
+  /* Menu score, but only once the page is allowed to make sound. Calling
+     this before the player has touched anything would construct an
+     AudioContext the browser immediately blocks, which costs a console
+     warning and buys nothing — resume() starts the score at the first
+     real gesture instead. */
+  menuMusic(){
+    if (!this.ctx) return;
+    this.startMusic("menu");
+  },
+  startMusic(mode){
     this.init();
-    if (!this.ctx || this.music.playing) return;
+    if (!this.ctx) return;
+    const want = mode || "combat";
+    if (this.music.playing) { this.setMusicMode(want); return; }
     this.music.playing = true;
+    this.music.mode = this.music.want = want;
     this.music.step = 0;
     this.music.chord = 0;
     this.music.nextT = this.now() + 0.1;
+    if (this.musicFade) this.musicFade.gain.setValueAtTime(1, this.now());
     this.music.timer = setInterval(() => this._musicSched(), 40);
+    this._applyMusicFilter(true);
   },
   stopMusic(){
     this.music.playing = false;
     if (this.music.timer) { clearInterval(this.music.timer); this.music.timer = null; }
   },
-  setIntensity(v){ this.music.intensity = expLerp(this.music.intensity, clamp(v, 0, 1), 2.5, 0.05); },
+  /* Queue a score change. The swap itself lands on the next bar so the
+     transition is musical rather than abrupt. */
+  setMusicMode(mode){
+    if (!this.ctx) return;
+    if (!this.music.playing) { this.startMusic(mode); return; }
+    if (this.music.want === mode) return;
+    this.music.want = mode;
+    const t = this.now();
+    this.musicFade.gain.cancelScheduledValues(t);
+    this.musicFade.gain.setValueAtTime(this.musicFade.gain.value, t);
+    this.musicFade.gain.linearRampToValueAtTime(0.12, t + 0.22);
+    this.musicFade.gain.linearRampToValueAtTime(1, t + 0.75);
+  },
+  /* Pause / overlay: pull the score behind glass instead of cutting it. */
+  duckMusic(on){
+    if (this.music.ducked === !!on) return;
+    this.music.ducked = !!on;
+    this._applyMusicFilter();
+  },
+  _applyMusicFilter(instant){
+    if (!this.musicFilter) return;
+    const m = this.music;
+    let hz;
+    if (m.ducked) hz = 420;
+    else if (m.mode === "menu") hz = 1500 + m.intensity * 200;
+    else hz = 900 + m.intensity * 5200;          // fights audibly open up
+    const t = this.now();
+    this.musicFilter.frequency.cancelScheduledValues(t);
+    this.musicFilter.frequency.setTargetAtTime(hz, t, instant ? 0.01 : 0.35);
+  },
+  setIntensity(v){
+    const before = this.music.intensity;
+    this.music.intensity = expLerp(before, clamp(v, 0, 1), 2.5, 0.05);
+    if (Math.abs(this.music.intensity - before) > 0.02) this._applyMusicFilter();
+  },
   _musicSched(){
     if (!this.music.playing) return;
     const m = this.music;
-    const bpm = 104 + m.intensity * 30;
+    const bpm = m.mode === "menu" ? 82 : (m.mode === "boss" ? 128 : 104) + m.intensity * 30;
     const six = 60 / bpm / 4;
     while (m.nextT < this.now() + 0.14) {
-      this._musicStep(m.nextT, m.step, m.intensity);
+      // score changes take effect on a bar line
+      if (m.step % 16 === 0 && m.want !== m.mode) {
+        m.mode = m.want;
+        m.chord = 0;
+        this._applyMusicFilter();
+      }
+      if (m.mode === "menu") this._menuStep(m.nextT, m.step);
+      else this._combatStep(m.nextT, m.step, m.intensity, m.mode === "boss");
       m.nextT += six;
       m.step++;
     }
   },
-  _musicStep(t, step, int){
-    const bus = this.musicBus;
+
+  /* ---- menu score: focus music, wide and unhurried ---- */
+  _menuStep(t, step){
+    const bus = this.musicFade;
+    const s = step % 32;                       // two-bar phrase
+    const PROG = this.PROGS.menu;
+    if (s === 0) this.music.chord = ((step / 32) | 0) % PROG.length;
+    const base = 110 * Math.pow(2, PROG[this.music.chord] / 12);
+    // sub pulse on the downbeat of each bar
+    if (s % 16 === 0)
+      this.tone({ t, bus, f: base / 2, dur: 0.9, type: "sine", vol: 0.11, attack: 0.05 });
+    // sustained pad chord, root + fifth + minor third, slow attack
+    if (s === 0) {
+      for (const semi of [0, 7, 15]) {
+        this.tone({ t, bus, f: base * Math.pow(2, semi / 12), dur: 3.4,
+          type: "sawtooth", vol: semi === 0 ? 0.032 : 0.022, attack: 0.9, detune: 0.005, send: 0.25 });
+      }
+    }
+    // bell figure: wanders the pentatonic, never on a strict pattern
+    if (s % 8 === 2 || s === 13 || s === 27) {
+      const sc = this.SCALES.menu;
+      const n = sc[(step * 3 + this.music.chord * 2) % sc.length];
+      this.tone({ t, bus, f: base * 4 * Math.pow(2, n / 12), dur: 0.5,
+        type: "sine", vol: 0.045, attack: 0.006, send: 0.42 });
+    }
+    // distant air, so the silence between notes is never dead
+    if (s === 8)
+      this.noise({ t, bus, dur: 2.2, filter: "bandpass", ff: 500, ff2: 300, q: 0.7, vol: 0.016, attack: 0.7 });
+  },
+
+  /* ---- combat score: the layered adaptive stack ---- */
+  _combatStep(t, step, int, boss){
+    const bus = this.musicFade;
     const s = step % 16;
-    const PROG = [0, -4, 3, -2]; // semitone shifts, A minor drift
-    if (step % 16 === 0) this.music.chord = ((step / 16) | 0) % 4;
-    const semi = PROG[this.music.chord];
-    const base = 110 * Math.pow(2, semi / 12);
-    // bass pulse
+    const PROG = boss ? this.PROGS.boss : this.PROGS.combat;
+    if (s === 0) this.music.chord = ((step / 16) | 0) % PROG.length;
+    const base = 110 * Math.pow(2, PROG[this.music.chord] / 12);
+    // driving bass, detuned for weight
     if (s % 4 === 0)
-      this.tone({ t, bus, f: base / 2, dur: 0.16, type: "square", vol: 0.09 + int * 0.05 });
+      this.tone({ t, bus, f: base / 2, dur: 0.17, type: "square",
+        vol: 0.09 + int * 0.05, detune: 0.004 });
+    // off-beat bass answer once the fight has weight
+    if (int > 0.5 && s % 8 === 6)
+      this.tone({ t, bus, f: base / 2, dur: 0.1, type: "square", vol: 0.05 + int * 0.03 });
     // hats
     if (int > 0.12 && s % 2 === 1)
-      this.noise({ t, bus, dur: 0.03, filter: "highpass", ff: 6000, vol: 0.028 + int * 0.03 });
-    // arpeggio (minor pentatonic walk)
+      this.noise({ t, bus, dur: 0.03, filter: "highpass", ff: 6000, vol: 0.026 + int * 0.03 });
+    if (int > 0.6 && s % 4 === 3)
+      this.noise({ t, bus, dur: 0.06, filter: "highpass", ff: 4200, vol: 0.02, send: 0.2 });
+    // arpeggio
     if (int > 0.3 && s % 2 === 0) {
-      const scale = [0, 3, 5, 7, 10, 12];
-      const n = scale[(step * 5 + this.music.chord) % scale.length];
-      this.tone({ t, bus, f: base * 2 * Math.pow(2, n / 12), dur: 0.11, type: "triangle", vol: 0.05 + int * 0.045 });
+      const sc = boss ? this.SCALES.boss : this.SCALES.combat;
+      const n = sc[(step * 5 + this.music.chord) % sc.length];
+      this.tone({ t, bus, f: base * 2 * Math.pow(2, n / 12), dur: 0.11,
+        type: "triangle", vol: 0.05 + int * 0.045, send: int > 0.55 ? 0.22 : 0 });
     }
-    // kick
+    // kick + snare
     if (int > 0.42 && (s === 0 || s === 8))
       this.tone({ t, bus, f: 120, f2: 38, dur: 0.12, type: "sine", vol: 0.2 });
-    // snare
     if (int > 0.55 && (s === 4 || s === 12))
-      this.noise({ t, bus, dur: 0.09, filter: "bandpass", ff: 1400, q: 1.1, vol: 0.09 });
-    // pad stab at bar start, high intensity
+      this.noise({ t, bus, dur: 0.09, filter: "bandpass", ff: 1400, q: 1.1, vol: 0.09, send: 0.18 });
+    // pad stabs at the top of the bar once it is genuinely hot
     if (int > 0.68 && s === 0) {
-      this.tone({ t, bus, f: base * 2, dur: 0.7, type: "sawtooth", vol: 0.035, attack: 0.08 });
+      this.tone({ t, bus, f: base * 2, dur: 0.7, type: "sawtooth", vol: 0.035, attack: 0.08, detune: 0.005 });
       this.tone({ t, bus, f: base * 2 * Math.pow(2, 3 / 12), dur: 0.7, type: "sawtooth", vol: 0.03, attack: 0.08 });
     }
+    // boss drone: a tritone under everything, the sound of being outgunned
+    if (boss && s === 0)
+      this.tone({ t, bus, f: base * Math.pow(2, 6 / 12), dur: 2.0, type: "sawtooth",
+        vol: 0.022, attack: 0.4, detune: 0.008, send: 0.3 });
+  },
+
+  /* ---- musical stingers, keyed to whatever chord is playing ---- */
+  _chordBase(){
+    const m = this.music;
+    const PROG = m.mode === "boss" ? this.PROGS.boss
+      : m.mode === "menu" ? this.PROGS.menu : this.PROGS.combat;
+    return 110 * Math.pow(2, PROG[m.chord % PROG.length] / 12);
+  },
+  stingerWin(){
+    const t = this.now(), base = this._chordBase();
+    [0, 7, 12, 19].forEach((semi, i) => {
+      this.tone({ t: t + i * 0.075, f: base * 2 * Math.pow(2, semi / 12), dur: 0.4,
+        type: "triangle", vol: 0.11, send: 0.35 });
+    });
+  },
+  stingerFail(){
+    const t = this.now(), base = this._chordBase();
+    [0, -3, -8].forEach((semi, i) => {
+      this.tone({ t: t + i * 0.16, f: base * Math.pow(2, semi / 12), dur: 0.7,
+        type: "sawtooth", vol: 0.1, attack: 0.02, detune: 0.01, send: 0.3 });
+    });
   },
 };
