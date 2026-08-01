@@ -115,6 +115,16 @@ const DIRECTOR = {
 /* ================================================================
    SECTION 11 — WORLD (entity container + simulation step)
    ================================================================ */
+/* Separation push, applied per axis and refused where it would drive a
+   tank into geometry. A crowded corridor generates a lot of these
+   shoves, and an unchecked one can bury a tank in a wall it then has to
+   crawl back out of — which reads as a hostile jammed in the scenery. */
+function shoveTank(t, dx, dy){
+  const map = WORLD.map;
+  if (!map) { t.x += dx; t.y += dy; return; }
+  if (!map.solidAtXY(t.x + dx, t.y)) t.x += dx;
+  if (!map.solidAtXY(t.x, t.y + dy)) t.y += dy;
+}
 const WORLD = {
   map: null, theme: THEMES[0], floorCv: null,
   player: null,
@@ -164,10 +174,8 @@ const WORLD = {
       const nx = dx / d, ny = dy / d;
       const overlap = rr - d;
       const tm = a.mass + b.mass;
-      a.x -= nx * overlap * (b.mass / tm);
-      a.y -= ny * overlap * (b.mass / tm);
-      b.x += nx * overlap * (a.mass / tm);
-      b.y += ny * overlap * (a.mass / tm);
+      shoveTank(a, -nx * overlap * (b.mass / tm), -ny * overlap * (b.mass / tm));
+      shoveTank(b, nx * overlap * (a.mass / tm), ny * overlap * (a.mass / tm));
     }
     for (let i = this.enemies.length - 1; i >= 0; i--)
       if (!this.enemies[i].alive) this.enemies.splice(i, 1);
@@ -542,11 +550,18 @@ const GAME = {
     }
     return out;
   },
+  /* Staging positions around a headquarters. A cell near the yard is not
+     necessarily a cell connected to it — a pocket on the far side of a
+     wall is metres away and still unreachable — so every spot has to be
+     drivable from the yard itself, or the squad deploys into a box. */
   stagingSpots(cell, skip, want){
-    const cells = openCellsNear(WORLD.map, cell.c, cell.r, skip + 4, skip);
+    const map = WORLD.map;
+    const reach = drivableFrom(map, cell.c, cell.r);
+    const cells = openCellsNear(map, cell.c, cell.r, skip + 4, skip);
     const out = [];
     for (const c of cells) {
-      const p = WORLD.map.center(c.c, c.r);
+      if (!reach[c.r * map.cols + c.c]) continue;
+      const p = map.center(c.c, c.r);
       if (out.some(o => dist2(o.x, o.y, p.x, p.y) < (CFG.TILE * 1.4) ** 2)) continue;
       out.push(p);
       if (out.length >= want) break;
@@ -650,20 +665,65 @@ const GAME = {
     this.spawnQueue = comp.map((type, i) => ({ type, delay: 0.4 + i * 0.5, mods }));
     this.waveState = "active";
   },
-  pickSpawnCell(){
+  /* Where a hostile may be deployed.
+     ----------------------------------------------------------------
+     Every candidate must be a cell the hostile can DRIVE from to the
+     player — not merely an open cell somewhere on the map. Picking any
+     open cell is what used to strand whole waves: the generator scatters
+     brick and stone through the maze, and a cell behind that brick looks
+     identical to a cell in the middle of the arena unless reachability
+     is actually tested. Those hostiles then sat in their pocket for the
+     rest of the sector, jammed against a wall they never break.
+
+     The arena generator now guarantees a drivable route to every floor
+     cell, so this is the second lock on the same door: it also covers
+     mid-sector cases the generator cannot know about, and it replaces
+     the old fixed fallback corner, which was solid ground on every
+     non-rectangular arena. */
+  spawnCandidates(){
     const map = WORLD.map, pl = WORLD.player;
+    if (!map || !pl) return [];
+    let pc = map.cellOf(pl.x, pl.y);
+    if (map.get(pc.c, pc.r) !== 0) {
+      // player somehow inside geometry: fall back to the maze at large
+      const open = [];
+      for (let r = 1; r < map.rows - 1; r++) for (let c = 1; c < map.cols - 1; c++)
+        if (map.get(c, r) === 0) open.push({ c, r });
+      if (!open.length) return [];
+      pc = open[0];
+    }
+    const reach = drivableFrom(map, pc.c, pc.r);
+    const out = [];
+    for (let r = 1; r < map.rows - 1; r++) for (let c = 1; c < map.cols - 1; c++) {
+      if (!reach[r * map.cols + c] || map.get(c, r) !== 0) continue;
+      const p = map.center(c, r);
+      out.push({ x: p.x, y: p.y, d: dist2(p.x, p.y, pl.x, pl.y) });
+    }
+    return out;
+  },
+  pickSpawnCell(){
+    const cand = this.spawnCandidates();
+    // no arena to speak of: the player's own ground is the only cell
+    // guaranteed to be open, and is still better than a wall
+    if (!cand.length) return WORLD.player ? { x: WORLD.player.x, y: WORLD.player.y }
+                                          : WORLD.map.center(1, 1);
+    const MIN2 = (CFG.TILE * 7) ** 2;
+    // far enough that a hostile never lands on top of the player; if the
+    // arena is too small for that, take the most distant cells it has
+    let pool = cand.filter(p => p.d >= MIN2);
+    if (!pool.length) {
+      const far = cand.reduce((a, b) => (b.d > a.d ? b : a));
+      pool = cand.filter(p => p.d >= far.d * 0.6);
+    }
+    // prefer mid-distance spawns (not across the whole map), sampled so a
+    // wave still arrives spread out rather than stacked on one tile
     let best = null, bestD = -1;
     for (let i = 0; i < 40; i++) {
-      const c = randInt(1, map.cols - 2), r = randInt(1, map.rows - 2);
-      if (map.get(c, r) !== 0) continue;
-      const p = map.center(c, r);
-      const d = dist2(p.x, p.y, pl.x, pl.y);
-      if (d < (CFG.TILE * 7) ** 2) continue;
-      // prefer mid-distance spawns (not across the whole map)
-      const scoreD = -Math.abs(d - (CFG.TILE * 13) ** 2);
+      const p = pool[(Math.random() * pool.length) | 0];
+      const scoreD = -Math.abs(p.d - (CFG.TILE * 13) ** 2);
       if (scoreD > bestD) { bestD = scoreD; best = p; }
     }
-    return best || map.center(map.cols - 2, map.rows - 2);
+    return best || pool[0];
   },
   spawnEnemy(type, mods){
     if (this.def().noEnemies) return;

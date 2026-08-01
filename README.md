@@ -81,8 +81,18 @@ them all pays a bonus.
 zones) and eight arena shapes (grid, diamond, rotunda,
 wedge, pentagon, hexagon, octagon, crossroad). Alongside brick there is
 reinforced stone, which needs a real blast, and watchtowers, which never fall
-and block line of sight. Every generated arena is verified fully connected, so
-a wave can never become unclearable.
+and block line of sight.
+
+Every generated arena is **repaired until it is fully drivable**: after the
+maze, the rooms, the brick/stone scatter and the watchtowers are placed, any
+pocket of floor a tank cannot drive to gets a breach corridor cut through the
+destructible walls between it and the arena, two tiles wide so a squad drives
+in abreast instead of queueing single file. Hostiles are then only ever
+deployed into cells that are drivable from the player's position, so a wave can
+never become unclearable and no tank can be stranded behind a wall it does not
+break. Checking whether you could *shoot* your way into a pocket is not the
+same question, and answering that one instead is what used to leave hostiles
+jammed at the arena edge on every non-rectangular shape.
 
 **Rewards** — kill-streak power charges, wave and sector-clear charges, boss
 drops, salvage from crates, and four optional rewarded-ad offers (supply drop,

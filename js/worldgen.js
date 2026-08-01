@@ -475,11 +475,130 @@ function buildFloor(map, theme, rng){
   return cv;
 }
 
+/* ================================================================
+   ARENA CONNECTIVITY
+   ----------------------------------------------------------------
+   The maze is carved inside the arena shape and brick and stone are
+   then scattered through it, which routinely seals whole pockets of
+   floor off behind destructible walls. Such a pocket is reachable in
+   the sense that you could shoot your way in, but no tank can DRIVE
+   there — and the wave spawner used to drop hostiles straight into
+   them, where they stayed for the rest of the sector, jammed against a
+   wall they never break, never reaching the fight.
+
+   So the arena is repaired here rather than merely inspected: every
+   pocket gets a breach corridor cut through the destructible walls
+   between it and the main arena, two tiles wide so a squad drives in
+   abreast instead of queueing single file. Only a pocket walled in by
+   steel or watchtowers — which the passes above cannot produce — is
+   sealed off as a last resort.
+   ================================================================ */
+/* The cells a tank can drive to from (c,r) right now: open floor only,
+   no shooting through anything. "Could you blast a way in" is a
+   different question, and answering that one instead is what stranded
+   the hostiles in the first place. */
+function drivableFrom(map, c, r){
+  const fl = _floodFrom(map, c, r, false);
+  const out = new Uint8Array(map.cols * map.rows);
+  for (let i = 0; i < out.length; i++) if (fl.dist[i] >= 0) out[i] = 1;
+  return out;
+}
+/* Breadth-first over everything a shell can open — floor plus brick and
+   stone — keeping the parent of each cell, so a route back to the start
+   can be walked without searching again. */
+function breachTree(map, sc, sr){
+  const cols = map.cols, rows = map.rows;
+  const parent = new Int32Array(cols * rows).fill(-2);   // -2 unvisited, -1 root
+  const q = [sr * cols + sc];
+  parent[q[0]] = -1;
+  for (let h = 0; h < q.length; h++) {
+    const i = q[h], c = i % cols, r = (i / cols) | 0;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dc, nr = r + dr;
+      if (nc < 1 || nr < 1 || nc >= cols - 1 || nr >= rows - 1) continue;
+      const ni = nr * cols + nc;
+      if (parent[ni] !== -2) continue;
+      const v = map.get(nc, nr);
+      if (v !== 0 && v !== 2 && v !== 3) continue;        // steel and towers stay
+      parent[ni] = i;
+      q.push(ni);
+    }
+  }
+  return parent;
+}
+/* Opens the cell and one destructible neighbour, so a cut corridor is
+   two tiles wide and tanks are never funnelled into single file. The
+   outer steel ring, steel walls and watchtowers are never touched. */
+function widenCell(map, c, r){
+  if (map.breakable(c, r)) map.set(c, r, 0);
+  for (const [dc, dr] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+    const cc = c + dc, rr = r + dr;
+    if (cc < 1 || rr < 1 || cc >= map.cols - 1 || rr >= map.rows - 1) continue;
+    if (map.breakable(cc, rr)) { map.set(cc, rr, 0); return; }
+  }
+}
+/* Walks the breach tree back from `i` to the start, opening the route. */
+function breachRoute(map, parent, i){
+  const cols = map.cols;
+  let n = i, guard = 0;
+  if (parent[n] === -2) return false;                    // walled in by steel
+  while (n >= 0 && guard++ < 8192) {
+    widenCell(map, n % cols, (n / cols) | 0);
+    n = parent[n];
+  }
+  return true;
+}
+/* Every floor cell that cannot be driven to, grouped into pockets. */
+function orphanPockets(map, reach){
+  const cols = map.cols, rows = map.rows;
+  const mark = new Uint8Array(cols * rows);
+  const out = [];
+  for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
+    const i = r * cols + c;
+    if (map.get(c, r) !== 0 || reach[i] || mark[i]) continue;
+    const cells = [], q = [i];
+    mark[i] = 1;
+    for (let h = 0; h < q.length; h++) {
+      const j = q[h];
+      cells.push(j);
+      const jc = j % cols, jr = (j / cols) | 0;
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nc = jc + dc, nr = jr + dr;
+        if (nc < 1 || nr < 1 || nc >= cols - 1 || nr >= rows - 1) continue;
+        const ni = nr * cols + nc;
+        if (mark[ni] || map.get(nc, nr) !== 0) continue;
+        mark[ni] = 1;
+        q.push(ni);
+      }
+    }
+    out.push({ i, cells });
+  }
+  return out;
+}
+/* Makes every floor cell in the arena drivable from (sc,sr). Returns
+   what it had to do, which the generation self-check reads. */
+function connectArena(map, sc, sr){
+  const cols = map.cols;
+  let breached = 0, sealed = 0;
+  for (let pass = 0; pass < 6; pass++) {
+    const pockets = orphanPockets(map, drivableFrom(map, sc, sr));
+    if (!pockets.length) break;
+    const parent = breachTree(map, sc, sr);
+    for (const p of pockets) {
+      if (breachRoute(map, parent, p.i)) { breached++; continue; }
+      // no route even through destructible walls: nothing may live there
+      for (const j of p.cells) map.set(j % cols, (j / cols) | 0, 1);
+      sealed++;
+    }
+  }
+  return { breached, sealed };
+}
+
 /* ---- braided maze generator ----
    Carves inside the sector's arena shape, braids dead ends into loops,
    opens rooms, seeds stone and tower tiles, then guarantees every
-   remaining floor cell is reachable from the player's spawn so a wave
-   can never become unclearable. ---- */
+   remaining floor cell can be DRIVEN to from the player's spawn, so no
+   hostile is ever deployed behind a wall it cannot pass. ---- */
 function genLevel(level, opts){
   opts = opts || {};
   const baseSeed = opts.seed !== undefined ? opts.seed
@@ -586,30 +705,10 @@ function genLevel(level, opts){
     i++;
   }
 
-  /* Connectivity pass. Flood fill from the maze's own start cell, which is
-     always part of the carved network, treating brick and stone as passable
-     (they can be blown open). Any floor cell still unreachable is sealed to
-     steel, so enemies can never spawn somewhere the player cannot go —
-     which would leave a wave permanently active. */
-  const seen = new Uint8Array(cols * rows);
-  const queue = [sr * cols + sc];
-  seen[queue[0]] = 1;
-  for (let qi = 0; qi < queue.length; qi++) {
-    const i = queue[qi], c = i % cols, r = (i / cols) | 0;
-    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nc = c + dc, nr = r + dr;
-      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
-      const ni = nr * cols + nc;
-      if (seen[ni]) continue;
-      const v = map.get(nc, nr);
-      if (v === 1 || v === 4) continue;     // steel and towers block for good
-      seen[ni] = 1;
-      queue.push(ni);
-    }
-  }
-  for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
-    if (map.get(c, r) === 0 && !seen[r * cols + c]) map.set(c, r, 1);
-  }
+  /* Connectivity pass — see connectArena(). Every floor cell left in the
+     arena is drivable from the maze's own start cell, so a hostile can
+     never be deployed somewhere it cannot drive out of. */
+  connectArena(map, sc, sr);
 
   // player spawn: first surviving (therefore reachable) floor cell
   let playerCell = [sc, sr];
@@ -695,13 +794,13 @@ function _floodFrom(map, sc, sr, breach){
   return { dist, last, cols };
 }
 /* Clears the destructible walls along the shortest breach route between
-   two cells, turning it into a corridor a tank can simply drive. Used to
-   guarantee the two headquarters are connected by open floor, since the
-   generator only ever guarantees a route you could blast. */
+   two cells, turning it into a two-tile-wide corridor a squad can simply
+   drive down. Used to give the two headquarters a route between them
+   that is a road rather than a wall to shoot through. */
 function openCorridor(map, a, b){
   const path = findPath(map, a.c, a.r, b.c, b.r, { breach: true });
   if (!path) return false;
-  for (const n of path) if (map.breakable(n.c, n.r)) map.set(n.c, n.r, 0);
+  for (const n of path) widenCell(map, n.c, n.r);
   return true;
 }
 /* The two open cells that are physically farthest apart, both reachable
