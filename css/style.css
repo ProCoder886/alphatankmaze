@@ -374,6 +374,16 @@ body.is-touch .for-touch{display:grid;}
   font-size:9.5px;letter-spacing:.1em;color:rgba(143,163,173,0.7);
   text-transform:uppercase;line-height:1.4;
 }
+/* Account-link state on the signed-in badge: the button reuses .cg-login,
+   and once the platform link modal has been accepted it becomes this tag. */
+.cg-linked{
+  font-size:9px;letter-spacing:.22em;text-transform:uppercase;font-weight:700;
+  color:var(--ok);white-space:nowrap;
+  padding:4px 8px 3px;
+  border:1px solid rgba(123,226,122,0.35);
+  background:rgba(123,226,122,0.08);
+  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
+}
 
 /* ---- CrazyGames friends (service record) ---- */
 .friends{margin-top:16px;}

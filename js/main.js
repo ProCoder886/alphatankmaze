@@ -628,7 +628,37 @@ const INTRO = {
    provider and no log-out. A signed-out player is a guest and can play
    everything; the log-in button is an optional extra in the top-right
    corner of the menu, and the auth prompt is never opened by itself.
+
+   A signed-in player additionally gets the account-link action: the
+   platform's standard showAccountLinkPrompt modal, which asks their
+   permission to attach the operator service record to that account.
+   "Yes" is remembered in the save (linkedId), so the badge shows a
+   LINKED tag instead of the button from then on.
    ================================================================ */
+/* True once the player has answered "yes" to the account-link modal for
+   the account that is signed in right now. A different account taking
+   over the device gets its own save — and so its own answer. */
+function accountLinked(){
+  return !!(SAVE.data && SAVE.data.linkedId && CG.account.id === SAVE.data.linkedId);
+}
+/* The account-link modal flow. Player-initiated: from the badge button,
+   or offered once right after a sign-in that the login button started.
+   "Yes" records the link and re-runs the token handshake for the newly
+   linked record; "no" (or a dismissed modal) changes nothing and the
+   button simply stays available. */
+async function linkAccountFlow(){
+  const A = CG.account;
+  if (!A.available || A.isGuest() || accountLinked()) { renderAccount(); return; }
+  const yes = await A.linkPrompt();
+  if (yes) {
+    SAVE.data.linkedId = A.id;
+    SAVE.persist();
+    A.verify();
+    if (GAME.state === "playing")
+      GAME.showBanner("RECORD LINKED", "Service record attached to " + (A.name() || "your account"), 2.2);
+  }
+  renderAccount();
+}
 function renderAccount(){
   const el = document.getElementById("cg-account");
   if (!el) return;
@@ -668,6 +698,22 @@ function renderAccount(){
   name.textContent = A.name() || "";
   box.append(role, name);
   el.append(img, box);
+  /* Account-link state: once linked, a quiet tag; until then, the
+     button that opens the platform's standard link modal. */
+  if (accountLinked()) {
+    const tag = document.createElement("span");
+    tag.className = "cg-linked";
+    tag.title = "Service record linked to this CrazyGames account";
+    tag.textContent = "Linked";
+    el.append(tag);
+  } else {
+    const btn = document.createElement("button");
+    btn.className = "btn small cg-login";
+    btn.dataset.act = "cg-link";
+    btn.textContent = "Link account";
+    btn.title = "Attach your service record to this CrazyGames account";
+    el.append(btn);
+  }
 }
 /* The player's CrazyGames friends, listed in the service record. Fetched
    once per session (and again after a sign-in), never on a timer — the
@@ -1038,8 +1084,19 @@ function bindUI(){
       case "rw-buy": claimReward(btn.dataset.rw, btn.dataset.cont, false); break;
 
       /* --- CrazyGames log in: the platform auth prompt, opened only by
-             this button. The auth listener does the rest. --- */
-      case "cg-login": CG.account.login(); break;
+             this button. The auth listener updates the profile and the
+             menu; a successful sign-in is then the one moment the
+             account-link modal is offered unprompted. (On CrazyGames a
+             data-module game may instead be reloaded by the platform on
+             login — then the badge's Link button covers the same ask.) */
+      case "cg-login":
+        (async () => {
+          const user = await CG.account.login();
+          if (user) await linkAccountFlow();
+        })();
+        break;
+      /* --- CrazyGames account link: the platform's standard modal. --- */
+      case "cg-link": linkAccountFlow(); break;
 
       /* --- first-run briefing --- */
       case "intro-next": INTRO.next(); break;
@@ -1082,6 +1139,7 @@ function bindUI(){
         syncSettingsUI();
         renderRecords();
         refreshMainBest();
+        renderAccount();     // the wipe also cleared the account link
         break;
     }
   });

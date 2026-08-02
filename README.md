@@ -150,7 +150,8 @@ read from the user module and all progress lives in the data module.
 | Log-out | Nothing to do: the platform reloads the page, so the game restarts from the menu |
 | Friends | `user.listFriends()` fills the friends list in the *Record* tab (one active call, 250 ms apart, page size clamped to 1-50) |
 | `userId` | Kept only to notice that a *different* account now owns the session; never used to authenticate anything, as `__dangerousUserId` must not be trusted |
-| `getUserToken()` | Wrapped as `CG.account.token()`. Progress lives in the data module and this build has no back-end, so nothing calls it during play — it is the documented hook for linking a server account to a CrazyGames `userId`. It is never decoded client-side and never stored |
+| `getUserToken()` | Wrapped as `CG.account.token()` and called by `CG.account.verify()` — the session handshake that runs on launch for a signed-in player, again after every sign-in, and after the link modal is accepted. The token is checked for presence and dropped: never stored, never decoded client-side (username/avatar come from `getUser()`) |
+| Account link prompt | `user.showAccountLinkPrompt()` — the platform's standard modal, never a home-made one. Offered once right after a sign-in started from the game's login button, and available any time from the **Link account** button on the signed-in badge. A "yes" is remembered in the save (`linkedId`), turning the button into a *Linked* tag; `userNotAuthenticated` and `showAccountLinkPromptInProgress` are handled |
 
 ### Progress — SDK `data` module
 
@@ -166,9 +167,15 @@ signed-in players — and not keep a local save beside it, so:
 * a save written by an older build of this game is copied into the data module
   **once**, on first run after the update, and never read again — existing cloud
   data always wins and is never overwritten;
+* **Wipe Data** (Record tab) runs the whole data-module surface: the save
+  record is `removeItem`-ed, everything left is `clear`-ed (the module scopes
+  keys per game, so no other game's data can be touched), legacy pre-SDK
+  `localStorage` copies are swept, and a fresh baseline is `setItem`-ed back;
 * `dataModuleDisabled` (the *Progress Save* toggle missing from the submission
   flow) falls back to `localStorage` and says so in the console rather than
-  silently losing every save.
+  silently losing every save. **When submitting, pick “Yes, using the Data
+  Module from the CrazyGames SDK” under Progress Save** — otherwise the
+  platform disables the module and none of its calls count in QA.
 
 `localStorage` is otherwise touched in exactly one case: no SDK on the page at
 all — a self-hosted or offline copy of this repository — where there is no data
@@ -184,6 +191,8 @@ values, so every path can be exercised without deploying:
 ?user_response=user2                a different account
 ?show_auth_prompt_response=user2    what the login button signs you in as
 ?show_auth_prompt_response=user_cancelled
+?link_account_response=no           what the Link account button answers
+?token_response=logged_out          getUserToken fails (guest session)
 ?user_account_available=false       the game embedded on another domain
 ```
 

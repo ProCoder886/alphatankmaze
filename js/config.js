@@ -110,6 +110,13 @@ const SAVE = {
          lives in the save rather than in localStorage, so it follows the
          player's CrazyGames account to every device they play on. */
       onboarded: false,
+      /* The CrazyGames account this service record was explicitly linked
+         to through the platform's account-link modal — null until the
+         player answers "yes". The save already syncs to the account via
+         the data module regardless; this records the player's stated
+         consent, and the menu badge reads it to offer (or stop offering)
+         the link action. */
+      linkedId: null,
       settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "master", location: "random", teamSize: 3 },
       scores: [],
       /* salvage = the non-ad currency players can spend on the same
@@ -133,6 +140,7 @@ const SAVE = {
         d.scores = Array.isArray(p.scores) ? p.scores : [];
         d.lastMode = p.lastMode;
         d.onboarded = !!p.onboarded;
+        d.linkedId = typeof p.linkedId === "string" && p.linkedId ? p.linkedId : null;
         /* v2 raised the baseline difficulty and made Master the default.
            Saves written before that carried the old default, so they are
            moved onto the new one once; anything the player had actually
@@ -155,6 +163,18 @@ const SAVE = {
     this.persist();
     return isRecord;
   },
-  wipe(){ this.data = this.defaults(); this.persist(); },
+  /* Wipe Data (Record tab): the full, player-initiated reset. It runs
+     the whole data-module surface in order — the save record itself is
+     removed, every remaining stored key is cleared, and then a fresh
+     baseline is written back so the next launch starts clean instead of
+     resurrecting anything from a stale copy. */
+  wipe(){
+    try {
+      CG.storage.removeItem(this.key);   // drop the save record
+      CG.storage.clear();                // sweep every remaining game key
+    } catch (e) { /* storage unavailable — the reset below still applies */ }
+    this.data = this.defaults();
+    this.persist();
+  },
 };
 let SETTINGS = null; // alias to SAVE.data.settings, assigned at boot

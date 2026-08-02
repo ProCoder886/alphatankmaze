@@ -9,8 +9,10 @@
      game   — gameplay start/stop, loading start/stop, happytime,
               completion %, game context, muteAudio setting
      user   — the game's ONLY account system: availability, current
-              user, auth prompt, auth listener, friends, token
-     data   — the game's ONLY progress store, synced across devices
+              user, auth prompt, account link prompt, auth listener,
+              friends, user token (session handshake)
+     data   — the game's ONLY progress store, synced across devices:
+              getItem / setItem / removeItem / clear
 
    Docs: https://docs.crazygames.com/sdk/intro/
          https://docs.crazygames.com/requirements/account-integration/
@@ -122,6 +124,10 @@ const CG = {
        that __dangerousUserId must not be trusted for that. */
     id: null,
     systemInfo: null,
+    /* True once the current signed-in session has answered the token
+       handshake (verify() below). Purely informational — play is never
+       gated on it. */
+    verified: false,
     _prompting: false,
     _friendsBusy: false,
     _friendsT: -1e9,
@@ -152,6 +158,9 @@ const CG = {
          change their username or avatar between sessions. */
       try { this.user = await u.getUser(); } catch (e) { this.user = null; }
       this.id = this.user ? this.user.__dangerousUserId : null;
+      /* Already signed in on launch: run the token handshake now, in the
+         background — the menu never waits on it. */
+      if (this.user) this.verify();
       /* A log-in while the game is open reaches the game here. A log-out
          never does — the platform reloads the whole page in that case,
          so the game simply starts again from the beginning. */
@@ -162,6 +171,9 @@ const CG = {
       const prevId = this.id;
       this.user = user || null;
       this.id = this.user ? this.user.__dangerousUserId : null;
+      // a fresh sign-in is a fresh session: redo the token handshake
+      this.verified = false;
+      if (this.user) this.verify();
       if (typeof CG.onAccountChange === "function")
         CG.onAccountChange(this.user, prevId !== this.id);
     },
@@ -190,6 +202,53 @@ const CG = {
       }
     },
 
+    /* The platform's standard account-link modal, asking the player's
+       permission to attach the in-game identity to their CrazyGames
+       account — here that identity is the operator service record (the
+       save), since this game has no other account system. The docs are
+       explicit that this provided modal is used rather than a home-made
+       one. Player-initiated only: from the badge button, or offered
+       once right after a sign-in that the login button started.
+       Resolves true (yes), false (no), or null when the modal could not
+       be shown at all (guest, unavailable, or one already open). */
+    async linkPrompt(){
+      const u = this.mod();
+      if (!u || !this.available || !this.user || this._prompting) return null;
+      this._prompting = true;
+      try {
+        const r = await u.showAccountLinkPrompt();
+        return !!(r && r.response === "yes");
+      } catch (e) {
+        const code = e && e.code;
+        // userNotAuthenticated / showAccountLinkPromptInProgress are the
+        // documented refusals; neither is an error worth reporting.
+        if (code !== "userNotAuthenticated" && code !== "showAccountLinkPromptInProgress")
+          console.warn("[CG] account link prompt failed:", e);
+        return null;
+      } finally {
+        this._prompting = false;
+      }
+    },
+
+    /* The signed-session handshake. The user token is the only identity
+       the platform hands out that could be trusted by a server, so
+       fetching one is how the game confirms the signed-in session is
+       live. Runs on launch for a signed-in player, again after every
+       sign-in, and after the account-link modal is accepted. This build
+       has no back-end to send the token to, so it is requested, checked
+       for presence and dropped — never stored and never decoded on the
+       client (the docs forbid both; username and avatar come from
+       getUser instead). The SDK refreshes tokens itself, so anything
+       that ever needs one must call token() again at that moment. */
+    async verify(){
+      this.verified = false;
+      if (!this.user) return false;
+      const t = await this.token();
+      this.verified = typeof t === "string" && t.length > 0;
+      if (!this.verified) console.warn("[CG] user token unavailable for the signed-in session");
+      return this.verified;
+    },
+
     /* The player's CrazyGames friends, shown in the service record.
        Honours the documented limits: one active call, 250ms between
        calls, page size 1-50. */
@@ -212,12 +271,12 @@ const CG = {
     },
 
     /* Signed JWT identifying the player, for a game back-end to verify
-       server-side with the CrazyGames public key. This build stores all
-       progress in the data module and has no back-end of its own, so
-       nothing calls it during play — it is the documented hook for
-       linking a server account to a CrazyGames userId. The token is
-       never decoded on the client, and never stored: the SDK refreshes
-       it, so it is fetched again whenever it is needed. */
+       server-side with the CrazyGames public key. verify() above calls
+       it as the session handshake; a future back-end would send this
+       token with its requests to link a server account to a CrazyGames
+       userId. The token is never decoded on the client, and never
+       stored: the SDK refreshes it, so it is fetched again whenever it
+       is needed. */
     async token(){
       const u = this.mod();
       if (!u || !this.available) return null;
@@ -239,8 +298,9 @@ const CG = {
      and moves it onto the account the moment a guest signs in, so none
      of that has to be handled here.
 
-     localStorage is touched in exactly two cases:
+     localStorage is touched in exactly three cases:
        · the one-time migration of a pre-SDK save into the data module
+       · Wipe Data, which also deletes those legacy local copies
        · there is no SDK on the page at all (self-hosted / offline copy),
          where there is no data module to rely on
      ================================================================ */
@@ -256,6 +316,18 @@ const CG = {
     _lsGet(k){ try { return localStorage.getItem(k); } catch (e) { return null; } },
     _lsSet(k, v){ try { localStorage.setItem(k, v); } catch (e) {} },
     _lsDel(k){ try { localStorage.removeItem(k); } catch (e) {} },
+    /* Every localStorage key this game owns (and no one else's — clear()
+       must never touch another game's data on a shared domain). */
+    _lsKeys(){
+      const keys = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf(this.PREFIX) === 0) keys.push(k);
+        }
+      } catch (e) { /* storage blocked — nothing to list */ }
+      return keys;
+    },
 
     /* Moves a pre-SDK localStorage save into the data module once, so a
        player who played this game before it used the data module keeps
@@ -267,14 +339,7 @@ const CG = {
       if (!m) return;
       try {
         if (m.getItem(this.MIGRATED)) return;
-        const keys = [];
-        try {
-          for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && k.indexOf(this.PREFIX) === 0) keys.push(k);
-          }
-        } catch (e) { /* storage blocked — nothing to migrate */ }
-        for (const k of keys) {
+        for (const k of this._lsKeys()) {
           if (m.getItem(k) != null) continue;
           const v = this._lsGet(k);
           if (v !== null) m.setItem(k, v);
@@ -318,6 +383,22 @@ const CG = {
       if (!m) { this._lsDel(key); return; }
       try { m.removeItem(key); }
       catch (e) { this._fail(e); if (!this.usingData) this._lsDel(key); }
+    },
+    /* Empties everything this game has stored — the Wipe Data reset.
+       The data module scopes keys per game, so its clear() cannot touch
+       any other game's data; the localStorage sweep is limited to this
+       game's own prefix for the same reason, and it also removes the
+       pre-SDK legacy copies so a wiped profile can never be refilled
+       from them. The migration flag is re-stamped afterwards for the
+       same guarantee on the next launch. */
+    clear(){
+      for (const k of this._lsKeys()) this._lsDel(k);
+      const m = this.usingData ? this._mod() : null;
+      if (!m) return;
+      try {
+        m.clear();
+        m.setItem(this.MIGRATED, "1");
+      } catch (e) { this._fail(e); }
     },
   },
 
