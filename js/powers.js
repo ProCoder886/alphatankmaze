@@ -39,6 +39,10 @@ const POWERS = {
 
   charges: {},     // id -> remaining charges this run
   cds: {},         // id -> cooldown remaining (s)
+  /* The cooldown a power was actually put on, which the Capacitor perk
+     shortens. The rack sweep divides by this rather than by the base
+     value, or a shortened cooldown would draw as permanently part-spent. */
+  cdMax: {},
   rack: [],        // HUD hit boxes: {id, x, y, r}
   lastUsed: null,  // id of the most recently fired power (HUD pulse)
   lastUsedT: 0,
@@ -47,10 +51,11 @@ const POWERS = {
 
   /* ---- run lifecycle ---- */
   reset(bonus){
-    this.charges = {}; this.cds = {};
+    this.charges = {}; this.cds = {}; this.cdMax = {};
     for (const p of this.DEFS) {
-      this.charges[p.id] = clamp(p.start + (bonus || 0), 0, p.cap);
+      this.charges[p.id] = clamp(p.start + (bonus || 0), 0, PERKS.cap(p));
       this.cds[p.id] = 0;
+      this.cdMax[p.id] = p.cd;
     }
     this.lastUsed = null; this.lastUsedT = 0;
   },
@@ -58,14 +63,14 @@ const POWERS = {
     const p = this.byId(id);
     if (!p) return 0;
     const before = this.charges[p.id] | 0;
-    this.charges[p.id] = clamp(before + n, 0, p.cap);
+    this.charges[p.id] = clamp(before + n, 0, PERKS.cap(p));
     return this.charges[p.id] - before;
   },
   /* Grants to a power that still has room, preferring rarer ones. */
   grantRandom(n){
-    const room = this.DEFS.filter(p => (this.charges[p.id] | 0) < p.cap);
+    const room = this.DEFS.filter(p => (this.charges[p.id] | 0) < PERKS.cap(p));
     if (!room.length) return null;
-    room.sort((a, b) => (this.charges[a.id] | 0) / a.cap - (this.charges[b.id] | 0) / b.cap);
+    room.sort((a, b) => (this.charges[a.id] | 0) / PERKS.cap(a) - (this.charges[b.id] | 0) / PERKS.cap(b));
     const pick2 = room[Math.min(room.length - 1, (Math.random() * Math.min(3, room.length)) | 0)];
     this.grant(pick2.id, n || 1);
     return pick2;
@@ -92,7 +97,7 @@ const POWERS = {
     }
     const p = this.byId(id);
     this.charges[id]--;
-    this.cds[id] = p.cd;
+    this.cds[id] = this.cdMax[id] = p.cd * (PERKS.flags.cdMul || 1);
     this.lastUsed = id; this.lastUsedT = 0.6;
     GAME.stats.powers = (GAME.stats.powers || 0) + 1;
     GAME.hintDone("power");
@@ -555,7 +560,7 @@ function drawPowerRack(c, time, x1, yTop){
       c.fillStyle = "rgba(120,150,170,0.22)";
       c.beginPath();
       c.moveTo(cx, cy);
-      c.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - cd / p.cd));
+      c.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - cd / (P.cdMax[p.id] || p.cd)));
       c.closePath(); c.fill();
     }
     // colored ring

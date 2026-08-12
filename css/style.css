@@ -635,13 +635,34 @@ h1.title::after{
 /* ============================================================
    MOBILE — landscape only, and a layout tuned for short screens
    ============================================================ */
+/* The rotate prompt is advice now, not a gate. It used to cover the
+   screen while the simulation was frozen behind it, which meant a phone
+   opened upright was simply a dead game — and almost everyone opens a
+   link upright. The game runs in portrait; this is a small card that
+   suggests turning the device and then fades out on its own. */
 #rotate-gate{
-  position:fixed;inset:0;z-index:200;display:none;
+  position:fixed;inset:auto 0 auto 0;top:12px;z-index:60;display:none;
   align-items:center;justify-content:center;
-  background:radial-gradient(ellipse at center, #101a24, #04060a 75%);
-  text-align:center;
+  background:none;text-align:center;pointer-events:none;
 }
-body.portrait-block #rotate-gate{display:flex;}
+/* The in-game hint already says this, in the HUD's own voice and in a
+   place chosen to avoid the score column. Showing the card as well put
+   a second message on top of the first. Kept in the markup because the
+   platform may still enforce an orientation at submission. */
+body.is-portrait #rotate-gate{display:none;}
+body.is-portrait .rg-box{
+  background:rgba(11,16,22,0.9);border:1px solid var(--edge);
+  padding:9px 15px;display:flex;align-items:center;gap:12px;
+  clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px);
+}
+body.is-portrait .rg-icon{width:20px;height:30px;margin:0;}
+body.is-portrait .rg-icon span{border-width:2px;border-radius:5px;box-shadow:none;}
+body.is-portrait .rg-title{font-size:11.5px;letter-spacing:.16em;text-shadow:none;}
+body.is-portrait .rg-sub{display:none;}
+@keyframes rg-fade{to{opacity:0;visibility:hidden;}}
+@media (prefers-reduced-motion: reduce){
+  body.is-portrait #rotate-gate{animation:none;opacity:.9;}
+}
 .rg-icon{width:74px;height:110px;margin:0 auto 22px;position:relative;}
 .rg-icon span{
   position:absolute;inset:0;border:3px solid var(--friend);border-radius:10px;
@@ -760,4 +781,188 @@ body.portrait-block #rotate-gate{display:flex;}
   }
   input[type=range]::-webkit-slider-thumb{width:22px;height:22px;}
   input[type=range]::-moz-range-thumb{width:20px;height:20px;}
+}
+
+/* ============================================================
+   FIELD REFIT — the perk draft
+   Three (or four, once unlocked) run-scoped upgrades between
+   sectors. Built from the existing chamfered-card language so it
+   reads as part of the same console as the mode picker.
+   ============================================================ */
+.perk-grid{display:grid;gap:10px;grid-template-columns:1fr;margin:14px 0 4px;}
+@media (min-width:660px){
+  .perk-grid{grid-template-columns:repeat(3,1fr);}
+  .perk-grid.wide{grid-template-columns:repeat(4,1fr);}
+}
+.perk-card{
+  font-family:var(--font-cmd);text-align:left;cursor:pointer;color:var(--ink);
+  background:linear-gradient(165deg, rgba(30,44,58,0.5), rgba(16,24,33,0.62));
+  border:1px solid var(--edge);border-top:2px solid var(--pk,var(--friend));
+  padding:15px 14px;display:flex;flex-direction:column;gap:7px;min-height:128px;
+  clip-path:polygon(11px 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%,0 11px);
+  transition:background .15s, border-color .15s, transform .1s, box-shadow .15s;
+}
+.perk-card:hover,.perk-card:focus-visible{
+  border-color:var(--pk,var(--friend));transform:translateY(-2px);outline:none;
+  background:linear-gradient(165deg, rgba(40,60,78,0.6), rgba(20,30,40,0.72));
+  box-shadow:0 10px 26px rgba(0,0,0,0.4);
+}
+.perk-card:active{transform:translateY(0);}
+.perk-name{
+  font-size:14px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--pk,var(--friend));
+}
+.perk-desc{font-size:12.5px;color:var(--ink-dim);line-height:1.45;}
+.perk-stack{
+  font-family:var(--font-num);font-size:10px;letter-spacing:.16em;
+  color:var(--hostile-hot);margin-top:auto;
+}
+.perk-taken{
+  display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:center;
+  margin-top:14px;
+}
+.perk-taken .pt-h{
+  font-size:10px;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--ink-dim);margin-right:4px;
+}
+.perk-taken .pt-i{
+  font-family:var(--font-num);font-size:10px;letter-spacing:.1em;
+  color:var(--friend);border:1px solid rgba(70,224,216,0.3);
+  background:rgba(70,224,216,0.06);padding:3px 7px;
+}
+@media (max-height:520px){
+  .perk-card{min-height:0;padding:10px 12px;gap:4px;}
+  .perk-desc{font-size:11px;}
+  .perk-taken{margin-top:8px;}
+}
+
+/* ============================================================
+   PROGRESSION — daily operation, contracts, operator level
+   The return hooks. All three reuse the existing panel, chip
+   and key/value language so the deck gains surfaces rather
+   than a second visual system.
+   ============================================================ */
+.daily-card{
+  border:1px solid var(--edge);border-left:2px solid var(--hostile-hot);
+  background:linear-gradient(165deg, rgba(48,36,24,0.5), rgba(16,24,33,0.55));
+  padding:11px 14px;margin:0 0 14px;
+  display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+}
+.daily-card.done{border-left-color:var(--ok);}
+.daily-card .dc-t{
+  font-size:12.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--hostile-hot);
+}
+.daily-card.done .dc-t{color:var(--ok);}
+.daily-card .dc-s{
+  font-size:11.5px;color:var(--ink-dim);font-family:var(--font-num);
+  letter-spacing:.04em;margin-top:3px;
+}
+.daily-card .dc-right{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.daily-card .dc-streak{
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ok);white-space:nowrap;
+  border:1px solid rgba(123,226,122,0.35);background:rgba(123,226,122,0.08);
+  padding:4px 8px 3px;
+}
+.contracts{margin:0 0 14px;}
+.contracts ul{list-style:none;display:grid;gap:2px;}
+.contracts li{
+  display:flex;justify-content:space-between;gap:14px;
+  font-family:var(--font-num);font-size:11.5px;color:var(--ink-dim);
+  border-bottom:1px dashed rgba(120,160,180,0.14);padding:5px 2px;
+}
+.contracts li:last-child{border-bottom:none;}
+.contracts li.done{color:var(--ok);}
+.contracts li.done::before{content:"\2714\00a0";}
+
+.progress-block{margin:16px auto 2px;max-width:430px;text-align:left;}
+.xp-row{
+  display:flex;justify-content:space-between;gap:12px;
+  font-family:var(--font-num);font-size:11px;letter-spacing:.16em;
+  color:var(--ink-dim);text-transform:uppercase;
+}
+.xp-gain{color:var(--friend-hot);}
+.xp-bar{height:6px;background:rgba(120,160,180,0.2);margin:7px 0 9px;overflow:hidden;}
+.xp-bar i{
+  display:block;height:100%;width:0;
+  background:linear-gradient(90deg,var(--friend),var(--friend-hot));
+  transition:width .9s cubic-bezier(.2,.9,.3,1);
+}
+.xp-unlock{
+  font-family:var(--font-num);font-size:11.5px;letter-spacing:.04em;
+  color:var(--hostile-hot);line-height:1.5;
+}
+.xp-next{
+  font-family:var(--font-num);font-size:11px;letter-spacing:.04em;
+  color:var(--ink-dim);line-height:1.5;
+}
+/* A locked operation is visible but not selectable, so the ladder
+   reads as something to climb rather than as content that is missing. */
+.mode-card.locked{opacity:.42;cursor:not-allowed;}
+.mode-card.locked:hover{border-color:var(--edge);background:linear-gradient(90deg, rgba(70,224,216,0.06), rgba(70,224,216,0.02) 60%, transparent);}
+.mode-card .mode-lock{
+  font-family:var(--font-num);font-size:10px;letter-spacing:.14em;
+  color:var(--hostile-hot);text-transform:uppercase;
+}
+@media (prefers-reduced-motion: reduce){ .xp-bar i{transition:none;} }
+@media (max-height:520px){
+  .daily-card{padding:8px 11px;margin:0 0 9px;}
+  .daily-card .dc-s{font-size:10.5px;}
+  .contracts{margin:0 0 9px;}
+  .contracts li{font-size:10.5px;padding:3px 2px;}
+  .progress-block{margin:8px auto 0;}
+}
+
+/* ============================================================
+   TOAST STACK — queued progression announcements
+   ============================================================ */
+/* Bottom-left: the top-right corner belongs to the minimap and the
+   power rack, and a toast landing on either of them hides information
+   the player is actively reading. Nothing else lives down here except
+   the optional FPS counter. */
+#toasts{
+  position:fixed;z-index:150;pointer-events:none;
+  bottom:calc(46px + env(safe-area-inset-bottom,0px));
+  left:calc(14px + env(safe-area-inset-left,0px));
+  display:flex;flex-direction:column-reverse;gap:8px;align-items:flex-start;
+  max-width:min(320px,64vw);
+}
+.toast{
+  background:linear-gradient(165deg, rgba(30,44,58,0.92), rgba(12,18,25,0.94));
+  border:1px solid var(--edge);border-left:2px solid var(--tc,var(--friend));
+  padding:9px 14px;display:flex;flex-direction:column;gap:2px;
+  clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px);
+  opacity:0;transform:translateX(-18px);
+  transition:opacity .3s ease-out, transform .3s cubic-bezier(.2,.9,.3,1);
+  box-shadow:0 12px 30px rgba(0,0,0,0.5);
+}
+.toast.in{opacity:1;transform:none;}
+.toast-t{
+  font-size:11.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--tc,var(--friend));
+}
+.toast-s{font-family:var(--font-num);font-size:11px;color:var(--ink-dim);letter-spacing:.03em;}
+@media (prefers-reduced-motion: reduce){
+  .toast{transition:opacity .2s;transform:none;}
+  .toast.in{transform:none;}
+}
+@media (max-height:520px){
+  #toasts{bottom:38px;left:8px;max-width:52vw;}
+  .toast{padding:6px 10px;}
+  .toast-t{font-size:10.5px;}
+  .toast-s{font-size:10px;}
+}
+
+/* ============================================================
+   SCREEN TRANSITION — a wipe, then the panel
+   Entering a run should feel like a launch, not a cut.
+   ============================================================ */
+@keyframes scr-wipe{
+  from{clip-path:inset(0 0 100% 0);opacity:.4;}
+  to{clip-path:inset(0 0 0 0);opacity:1;}
+}
+.screen{animation:scr-in .28s ease-out, scr-wipe .22s cubic-bezier(.3,.8,.2,1);}
+@media (prefers-reduced-motion: reduce){
+  .screen{animation:none !important;}
 }

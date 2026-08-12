@@ -67,9 +67,14 @@ function drawHUD(c, time){
   const pad = Math.round(16 * UIS);
   let padL = pad + SAFE.l;
   const padR = pad + SAFE.r, padT = pad + SAFE.t;
-  /* Touch has no keyboard, so gameplay needs an on-screen pause button.
-     It is registered as a canvas hit box and the left HUD cluster shifts
-     across so the two never overlap. */
+  /* With the game auto-deploying straight into a run, the way back to
+     the command deck has to be visible — it is no longer a screen the
+     player passed through on the way in.
+
+     Touch gets a real tap target. Desktop gets a legend instead of a
+     button on purpose: a hit box in this corner sits under the aiming
+     crosshair, so a player firing up-left would pause mid-fight. The
+     keyboard already has P and ESC; it only needed saying out loud. */
   INPUT.uiButtons.length = 0;
   if (INPUT.usingTouch) {
     const bs = Math.round(38 * UIS);
@@ -96,9 +101,17 @@ function drawHUD(c, time){
   let y = padT;
   /* The bar has to stop short of the centred score column, or on a phone
      held sideways — where the cluster also carries the pause button — the
-     two run into each other. */
+     two run into each other.
+
+     In portrait there is no room beside the score column at all, so the
+     whole left cluster drops below it and spans the width instead of
+     competing for the row. */
+  const tall = H > W;
+  if (tall) y = padT + FS(96);
   const centreClear = W / 2 - 92 * UIS;
-  const bw = clamp(Math.min(230 * UIS, W * 0.32), 84 * UIS, Math.max(84 * UIS, centreClear - padL - LBL));
+  const bw = tall
+    ? clamp(W - padL - padR - LBL, 84 * UIS, 260 * UIS)
+    : clamp(Math.min(230 * UIS, W * 0.32), 84 * UIS, Math.max(84 * UIS, centreClear - padL - LBL));
   c.font = "700 " + FS(11) + "px Bahnschrift, 'Segoe UI', sans-serif";
   c.textAlign = "left";
   c.fillStyle = "rgba(223,233,238,0.75)";
@@ -168,8 +181,19 @@ function drawHUD(c, time){
   }
   /* --- minimap: top-right corner, always showing the whole arena --- */
   MINI.draw(c);
-  /* --- superpower rack, stacked directly under the minimap --- */
-  const rackTop = (MINI.box ? MINI.box.y + MINI.box.h : padT) + Math.round(8 * UIS);
+  /* --- superpower rack ---
+     On a mouse it stacks under the minimap, where it reads as part of
+     the status column. On touch it moves to the bottom right, just
+     above the aiming thumb: seven discs in the top corner of a phone
+     are a stretch across the whole screen for the one hand that is
+     already busy steering, which is why they went unused. */
+  let rackTop;
+  if (INPUT.usingTouch) {
+    const rackH = Math.round((20 * 2 + 20) * UIS) * Math.ceil(POWERS.DEFS.length / 4) + Math.round(14 * UIS);
+    rackTop = H - rackH - SAFE.b - Math.round(96 * UIS);
+  } else {
+    rackTop = (MINI.box ? MINI.box.y + MINI.box.h : padT) + Math.round(8 * UIS);
+  }
   drawPowerRack(c, time, W - padR, rackTop);
   /* --- top-center: score, combo, sector / wave --- */
   c.textAlign = "center";
@@ -266,13 +290,20 @@ function drawHUD(c, time){
   /* --- hint --- */
   if (GAME.hintMsg.t > 0) {
     const a = clamp(GAME.hintMsg.t / 0.5, 0, 1);
+    /* On touch the bottom of the screen belongs to the thumb-zone guide
+       and the stick rings, so the hint sits above the power rack
+       instead of writing over them. */
+    const hintBase = INPUT.usingTouch
+      ? Math.max(FS(40), rackTop - 14 * UIS)
+      : H - (56 * UIS) - SAFE.b;
+    c.textAlign = "center";
     c.globalAlpha = a * 0.9;
     c.fillStyle = "rgba(8,12,18,0.55)";
     c.font = "700 " + FS(12) + "px Consolas, monospace";
     const tw = c.measureText(GAME.hintMsg.text).width;
-    c.fillRect(W / 2 - tw / 2 - 14 * UIS, H - (74 * UIS) - SAFE.b, tw + 28 * UIS, 26 * UIS);
+    c.fillRect(W / 2 - tw / 2 - 14 * UIS, hintBase - 18 * UIS, tw + 28 * UIS, 26 * UIS);
     c.fillStyle = "#8ffff6";
-    c.fillText(GAME.hintMsg.text, W / 2, H - (56 * UIS) - SAFE.b);
+    c.fillText(GAME.hintMsg.text, W / 2, hintBase);
     c.globalAlpha = 1;
   }
   /* --- low HP vignette --- */
@@ -338,11 +369,30 @@ function drawHUD(c, time){
     }
   }
   /* --- fps --- */
+  let footY = H - 14 - SAFE.b;
   if (SETTINGS.fps) {
     c.textAlign = "left";
     c.fillStyle = "rgba(143,255,246,0.7)";
     c.font = "700 " + FS(11) + "px Consolas, monospace";
-    c.fillText(FPSMON.fps.toFixed(0) + " FPS · " + (SETTINGS.quality === "auto" ? QUALITY_TIERS[autoTier].toUpperCase() + "*" : SETTINGS.quality.toUpperCase()), padL, H - 14 - SAFE.b);
+    c.fillText(FPSMON.fps.toFixed(0) + " FPS · " + (SETTINGS.quality === "auto" ? QUALITY_TIERS[autoTier].toUpperCase() + "*" : SETTINGS.quality.toUpperCase()), padL, footY);
+    footY -= FS(16);
+  }
+  /* --- route back to the command deck ---
+     The game now deploys straight into a run, so the way out has to be
+     stated. Touch has the pause button up in the corner; a keyboard
+     player gets this, in the bottom-left where nothing else lives, and
+     it fades once it has been on screen long enough to be read. */
+  if (!INPUT.usingTouch && GAME.state === "playing") {
+    const age = GAME.stats ? GAME.stats.time : 0;
+    const a = clamp(1 - (age - 14) / 3, 0, 1);
+    if (a > 0.01) {
+      c.globalAlpha = a * 0.7;
+      c.textAlign = "left";
+      c.fillStyle = "rgba(143,255,246,0.85)";
+      c.font = "700 " + FS(10) + "px Consolas, monospace";
+      c.fillText("P · MENU", padL, footY);
+      c.globalAlpha = 1;
+    }
   }
 }
 
@@ -491,7 +541,15 @@ function render(time){
   ctx.fillRect(0, 0, W, H);
   const rect = CAM.visible();
   CAM.begin(ctx);
-  ctx.drawImage(WORLD.floorCv, 0, 0, WORLD.map.cols * CFG.TILE, WORLD.map.rows * CFG.TILE);
+  /* The floor is a pre-rendered canvas that a low-memory device may
+     have refused. A flat themed wash is a survivable fallback; a throw
+     here would be a crash on every frame. */
+  if (WORLD.floorCv) {
+    ctx.drawImage(WORLD.floorCv, 0, 0, WORLD.map.cols * CFG.TILE, WORLD.map.rows * CFG.TILE);
+  } else {
+    ctx.fillStyle = WORLD.theme.floor;
+    ctx.fillRect(0, 0, WORLD.map.cols * CFG.TILE, WORLD.map.rows * CFG.TILE);
+  }
   if (DECALS.cv) ctx.drawImage(DECALS.cv, 0, 0, DECALS.w, DECALS.h);
   WORLD.map.draw(ctx, WORLD.theme, rect);
   PARTS.draw(ctx, 0);
@@ -512,6 +570,9 @@ function render(time){
   CAM.end(ctx);
   // dynamic lighting overlay
   LIGHTS.render(ctx, GAME.ambient(), WORLD.theme.lightTint + GAME.ambient() + ")");
+  /* Bloom samples the lit frame, so a muzzle flash in a dark sector
+     blooms and the same flash at noon does not. */
+  POST.render(ctx, cv, W, H);
   // screen flash
   if (FX.flash > 0) {
     ctx.fillStyle = "rgba(" + FX.flashColor + "," + clamp(FX.flash, 0, 0.5) + ")";
@@ -536,6 +597,8 @@ function showScreen(id){
   // Banners are only allowed on static screens that stay up a while.
   if (id === "scr-main") {
     renderOffer("offer-main", "supply");
+    renderDaily();
+    renderContracts();
     refreshModeLabel();
     CG.showBanner("banner-menu");
   } else {
@@ -609,11 +672,12 @@ const INTRO = {
     if (this.i >= this.N - 1) { this.finish(); return; }
     this.go(1);
   },
-  /* Seen or skipped, the answer is the same: never show it unprompted
-     again, and open the command deck. */
+  /* The briefing is a reference document now, not a gate: it is reached
+     from the Manual tab and nowhere else, so it no longer owns the
+     `onboarded` flag — COLDOPEN sets that when the first sector is
+     actually cleared, which is what the flag was always supposed to
+     mean. Finishing simply returns to the deck it was opened from. */
   finish(){
-    SAVE.data.onboarded = true;
-    SAVE.persist();
     GAME.state = "menu";
     showScreen("scr-main");
     refreshMainBest();
@@ -762,19 +826,22 @@ async function renderFriends(reset){
 function reloadProfile(){
   SAVE.load();
   SETTINGS = SAVE.data.settings;
+  META.bind();                  // a different account brings its own meta
   resolveQuality();
   syncSettingsUI();
   AUDIO.applyVolumes();
   refreshMainBest();
   renderRecords();
   if (GAME.state !== "menu") return;
-  if (SAVE.data.lastMode && MODES[SAVE.data.lastMode]) GAME.mode = SAVE.data.lastMode;
+  if (SAVE.data.lastMode && MODES[SAVE.data.lastMode] && !modeLocked(SAVE.data.lastMode)) GAME.mode = SAVE.data.lastMode;
   renderModes();
   renderLocations();
   renderSquadSizes();
   renderDifficulties();
   refreshModeLabel();
   renderOffer("offer-main", "supply");
+  renderDaily();
+  renderContracts();
 }
 function onAccountChange(user, changed){
   renderAccount();
@@ -992,17 +1059,262 @@ async function claimReward(rewardId, containerId, viaAd){
 }
 
 /* ================================================================
+   RESULT-SCREEN COUNT-UP
+   ----------------------------------------------------------------
+   Score, kills and accuracy used to appear already finished. Rolling
+   them up is the cheapest dopamine in the interface: the same numbers,
+   delivered as an event rather than as a fact.
+   ================================================================ */
+let _countTimers = [];
+function countUp(el, to, opts){
+  if (!el) return;
+  opts = opts || {};
+  const dur = opts.dur || 900, delay = opts.delay || 0;
+  const fmtFn = opts.fmt || fmt;
+  /* prefers-reduced-motion gets the final value immediately — the
+     information matters, the animation does not. */
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    el.textContent = fmtFn(to);
+    return;
+  }
+  el.textContent = fmtFn(0);
+  const t0 = performance.now() + delay;
+  let lastTick = 0;
+  const step = () => {
+    const k = clamp((performance.now() - t0) / dur, 0, 1);
+    if (k > 0) {
+      const v = easeOutCubic(k) * to;
+      el.textContent = fmtFn(v);
+      /* One tick per ~70ms, not per frame — sixty ticks a second is a
+         machine gun, not a counter. */
+      if (performance.now() - lastTick > 70 && k < 1) { lastTick = performance.now(); AUDIO.uiTick(k); }
+    }
+    if (k < 1) _countTimers.push(requestAnimationFrame(step));
+  };
+  _countTimers.push(requestAnimationFrame(step));
+}
+function stopCountUps(){
+  for (const id of _countTimers) cancelAnimationFrame(id);
+  _countTimers = [];
+}
+/* Rolls every number on a results panel: the headline score, then each
+   stat row in sequence so the eye is led down the column. */
+function animateResults(rootId, bigId, score){
+  stopCountUps();
+  const big = bigId ? document.getElementById(bigId) : null;
+  if (big && score !== undefined) countUp(big, score, { dur: 1100 });
+  const vals = document.querySelectorAll("#" + rootId + " .sv");
+  vals.forEach((el, i) => {
+    const raw = el.textContent.trim();
+    const m = raw.match(/^([\d,]+)(%?)$/);
+    if (!m) return;                       // times, ratios, labels: leave them
+    const target = parseInt(m[1].replace(/,/g, ""), 10);
+    if (!isFinite(target) || target <= 0) return;
+    const suffix = m[2];
+    countUp(el, target, {
+      dur: 650, delay: 120 + i * 80,
+      fmt: (v) => fmt(v) + suffix,
+    });
+  });
+}
+
+/* ================================================================
+   ZONE-REACTIVE MENU
+   ----------------------------------------------------------------
+   The deployment zone the player has chosen recolours the console.
+   Sixteen distinct moods, identical layout, and it makes the zone
+   picker feel like a decision rather than a dropdown.
+   ================================================================ */
+function applyZoneTheme(){
+  const root = document.documentElement;
+  const loc = SETTINGS.location;
+  const t = (loc !== "random" && loc !== "rotate" && THEMES[+loc]) ? THEMES[+loc] : null;
+  if (!t) { root.style.removeProperty("--friend"); root.style.removeProperty("--friend-hot"); return; }
+  root.style.setProperty("--friend", t.accent);
+  root.style.setProperty("--friend-hot", t.accent);
+}
+
+/* ================================================================
+   TOAST STACK
+   ----------------------------------------------------------------
+   Progression that is not announced does not register, however much
+   of it is being awarded. Queued top-right cards that dismiss
+   themselves in sequence.
+   ================================================================ */
+const TOAST = {
+  queue: [],
+  showing: false,
+  push(text, sub, color){
+    this.queue.push({ text, sub: sub || "", color: color || "var(--friend)" });
+    this._pump();
+  },
+  _pump(){
+    if (this.showing || !this.queue.length) return;
+    const host = document.getElementById("toasts");
+    if (!host) { this.queue.length = 0; return; }
+    this.showing = true;
+    const t = this.queue.shift();
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.style.setProperty("--tc", t.color);
+    el.innerHTML = '<span class="toast-t">' + t.text + "</span>" +
+      (t.sub ? '<span class="toast-s">' + t.sub + "</span>" : "");
+    host.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("in"));
+    setTimeout(() => {
+      el.classList.remove("in");
+      setTimeout(() => {
+        el.remove();
+        this.showing = false;
+        this._pump();
+      }, 320);
+    }, 2600);
+  },
+};
+
+/* ================================================================
+   PROGRESSION SURFACES
+   ----------------------------------------------------------------
+   Three places the meta layer becomes visible: the daily operation
+   card and the contract list on the command deck, and the operator
+   block on the results screen. Progression that is not announced does
+   not register, no matter how much of it is being awarded.
+   ================================================================ */
+/* The results screen, at the moment of highest emotion: what this run
+   earned, and the specific named thing the next one is close to. */
+function renderRunProgress(last){
+  const el = document.getElementById("go-progress");
+  if (!el) return;
+  if (!last) { el.innerHTML = ""; return; }
+  const nx = META.nextUnlock();
+  const rows = [];
+  rows.push(
+    '<div class="xp-row"><span>OPERATOR ' + META.data.lvl + "</span>" +
+    '<span class="xp-gain">+' + fmt(last.amount) + " XP</span></div>" +
+    '<div class="xp-bar"><i style="width:0%"></i></div>');
+  if (last.levels > 0)
+    rows.push('<div class="xp-unlock">&#9733; Operator level ' + META.data.lvl +
+      (last.unlocked.length ? " — " + last.unlocked.map(u => u.label).join(" · ") : "") + "</div>");
+  else if (nx)
+    rows.push('<div class="xp-next">Operator ' + nx.lvl + " — " + nx.label + "</div>");
+  if (last.contracts && last.contracts.length)
+    rows.push('<div class="xp-unlock">&#10004; Contract complete — ' +
+      last.contracts.map(c => c.text).join(" · ") + "</div>");
+  if (last.streakPay)
+    rows.push('<div class="xp-unlock">Daily streak ' + META.data.daily.streak +
+      " — +" + fmt(last.streakPay) + " salvage</div>");
+  rows.push('<div class="xp-next">' + (META.dailyDone()
+    ? "Next Daily Operation in " + META.hoursToReset() + "h"
+    : "Today&rsquo;s Daily Operation is still open") + "</div>");
+  el.innerHTML = rows.join("");
+  /* Fill on the next frame so the CSS transition actually runs — a bar
+     that is already full when it appears reads as a static label. */
+  const bar = el.querySelector(".xp-bar i");
+  if (bar) requestAnimationFrame(() => {
+    bar.style.width = Math.round(META.levelPct() * 100) + "%";
+  });
+}
+
+/* The command deck's return hook: today's operation, its streak, and
+   how long is left to run it. */
+function renderDaily(){
+  const el = document.getElementById("daily-card");
+  if (!el) return;
+  META.rollDailyIfNeeded();
+  const d = META.data.daily;
+  const done = META.dailyDone();
+  el.className = "daily-card" + (done ? " done" : "");
+  el.innerHTML =
+    "<div>" +
+      '<div class="dc-t">Daily Operation</div>' +
+      '<div class="dc-s">' + (done
+        ? "Complete — best " + fmt(d.best) + " · resets in " + META.hoursToReset() + "h"
+        : "The same arena for every player · " + META.hoursToReset() + "h left") + "</div>" +
+    "</div>" +
+    '<div class="dc-right">' +
+      (d.streak > 0 ? '<span class="dc-streak">' + d.streak + " day streak</span>" : "") +
+      (done ? "" : '<button class="btn small" data-act="daily-play">&#9654;&nbsp; Run it</button>') +
+    "</div>";
+}
+
+/* Three errands a day, drawn from stats the game already collects. */
+function renderContracts(){
+  const el = document.getElementById("contracts");
+  if (!el) return;
+  const list = (META.data.contracts && META.data.contracts.list) || [];
+  if (!list.length) { el.innerHTML = ""; return; }
+  el.innerHTML = '<div class="tab-h">Daily contracts</div><ul>' +
+    list.map(c =>
+      '<li class="' + (c.done ? "done" : "") + '"><span>' + c.text + "</span>" +
+      "<span>" + (c.done ? "PAID" : "+" + c.pay + " salvage") + "</span></li>").join("") +
+    "</ul>";
+}
+
+/* ================================================================
+   FIELD REFIT — the perk draft
+   ----------------------------------------------------------------
+   Three run-scoped upgrades between every sector. Rendered fresh each
+   time so the offer is a genuine roll rather than a fixed ladder.
+   ================================================================ */
+function renderPerkDraft(){
+  const el = document.getElementById("perk-grid");
+  if (!el) return;
+  const sub = document.getElementById("perk-sub");
+  if (sub) sub.textContent = "Sector " + (GAME.level + 1) + " loadout";
+  /* Operator level 7 widens the draft — one of the unlock ladder's
+     rewards, and the only one that changes a screen's shape. */
+  const n = META.has("perk_slot") ? 4 : 3;
+  const offer = PERKS.roll(n);
+  el.classList.toggle("wide", n > 3);
+  el.innerHTML = offer.map(p =>
+    '<button class="perk-card" data-act="perk-take" data-perk="' + p.id + '" style="--pk:' + p.color + '">' +
+      '<span class="perk-name">' + p.name + "</span>" +
+      '<span class="perk-desc">' + p.desc + "</span>" +
+      (PERKS.count(p.id) ? '<span class="perk-stack">EQUIPPED &times;' + PERKS.count(p.id) + "</span>" : "") +
+    "</button>").join("");
+  /* What the build already is, so the choice has context. */
+  const taken = document.getElementById("perk-taken");
+  if (taken) {
+    const names = PERKS.taken.map(id => {
+      const d = PERKS.DEFS.find(x => x.id === id);
+      return d ? d.name : null;
+    }).filter(Boolean);
+    taken.innerHTML = names.length
+      ? '<span class="pt-h">Current build</span>' + names.map(n2 => '<span class="pt-i">' + n2 + "</span>").join("")
+      : "";
+  }
+}
+
+/* ================================================================
    OPERATION TYPE (game mode) SELECTION
    ================================================================ */
+/* Operations gated behind the operator ladder. Everything not listed is
+   always available — the ladder should read as a reason to keep playing,
+   not as most of the game being withheld. */
+const MODE_LOCK = {
+  survival: { id: "mode_survival", lvl: 2 },
+  basewar:  { id: "mode_basewar",  lvl: 5 },
+  endless:  { id: "mode_endless",  lvl: 10 },
+  team:     { id: "mode_team",     lvl: 20 },
+};
+function modeLocked(id){
+  const L = MODE_LOCK[id];
+  return !!(L && !META.has(L.id));
+}
 function renderModes(){
   const el = document.getElementById("mode-list");
   if (!el) return;
   el.innerHTML = MODE_ORDER.map(id => {
     const M = MODES[id];
     const on = GAME.mode === id ? " on" : "";
-    return '<button class="mode-card' + on + '" data-act="mode-pick" data-mode="' + id + '">' +
+    const lock = MODE_LOCK[id];
+    const locked = modeLocked(id);
+    return '<button class="mode-card' + on + (locked ? " locked" : "") +
+             '" data-act="mode-pick" data-mode="' + id + '"' + (locked ? " disabled" : "") + ">" +
              '<span class="mode-name">' + M.name + "</span>" +
-             '<span class="mode-sub">' + M.sub + "</span>" +
+             (locked
+               ? '<span class="mode-lock">Operator ' + lock.lvl + " required</span>"
+               : '<span class="mode-sub">' + M.sub + "</span>") +
            "</button>";
   }).join("");
 }
@@ -1104,7 +1416,15 @@ function bindUI(){
       case "intro-skip": INTRO.finish(); break;
       case "intro-replay": INTRO.show(); break;
 
-      case "play": lockLandscape(); GAME.startRun(); break;
+      case "play": lockLandscape(); GAME.startRun(GAME.mode); break;
+      /* The daily card's own deploy button: it selects the mode as well
+         as starting it, so the player never has to find it in the list. */
+      case "daily-play":
+        GAME.mode = "daily";
+        renderModes();
+        lockLandscape();
+        GAME.startRun("daily");
+        break;
       /* Every menu section is a tab inside the single main menu. */
       case "tab": {
         const id = btn.dataset.tab;
@@ -1114,6 +1434,7 @@ function bindUI(){
         break;
       }
       case "mode-pick":
+        if (modeLocked(btn.dataset.mode)) { AUDIO.uiDenied(); break; }
         GAME.mode = btn.dataset.mode;
         SAVE.data.lastMode = GAME.mode;
         SAVE.persist();
@@ -1129,10 +1450,20 @@ function bindUI(){
       case "retry":
         (async () => {
           if (CG.rewardCooldownLeft() === 0) await CG.midgame();
-          GAME.startRun();
+          /* Redeploy resumes from the banked checkpoint. Being sent back
+             to sector one after a fifteen-minute climb is the moment
+             most players close the tab. */
+          GAME.startRun(GAME.mode, META.data.checkpoint || 1);
         })();
         break;
       case "next": GAME.nextLevel(); break;
+      /* Advance routes through the refit draft; taking a card is what
+         actually opens the next sector. */
+      case "perk-open": renderPerkDraft(); showScreen("scr-perk"); break;
+      case "perk-take":
+        PERKS.take(btn.dataset.perk);
+        GAME.nextLevel();
+        break;
       case "wipe":
         SAVE.wipe();
         SETTINGS = SAVE.data.settings;
@@ -1181,6 +1512,7 @@ function bindUI(){
     SETTINGS.location = e.target.value;
     SAVE.persist();
     refreshModeLabel();
+    applyZoneTheme();          // the deck recolours to the chosen zone
   });
   document.getElementById("set-teamsize").addEventListener("change", (e) => {
     SETTINGS.teamSize = clamp(+e.target.value || CFG.SQUAD_MIN, CFG.SQUAD_MIN, CFG.SQUAD_MAX);
@@ -1228,9 +1560,27 @@ function resolveQuality(){
     : (QUALITY[SETTINGS.quality] || QUALITY.ultra);
   resize();
 }
-/* Landscape-only on phones/tablets: block portrait, pause the run, and
-   release the pointer lock until the device is turned back. */
+/* Portrait is playable, not blocked.
+   ----------------------------------------------------------------
+   A phone opened upright used to hit a full stop here: PORTRAIT_BLOCKED
+   made frame() return before any simulation ran, so the game was frozen
+   behind a rotate prompt. Almost everyone opens a link holding the
+   phone upright, and that single gate is most of the 29-point gap
+   between desktop conversion (53.99%) and mobile (24.46%).
+
+   A top-down game does not need landscape — a portrait viewport is
+   simply a taller, narrower camera window, and CAM.follow() already
+   clamps correctly for any aspect ratio. The flag stays because frame()
+   reads it, but nothing sets it true any more. */
 let PORTRAIT_BLOCKED = false;
+let PORTRAIT_MODE = null;
+let PORTRAIT_HINTED = false;
+/* The camera's resting zoom for the current window shape. A tall
+   portrait window shows far less arena across, so it pulls back to keep
+   roughly the same amount of map in view. Everything that sets tzoom
+   goes through this, or a sector change or a boss wave would silently
+   snap a phone back to the landscape framing. */
+function baseZoom(){ return PORTRAIT_MODE ? 0.82 : 1; }
 /* Best-effort hardware orientation lock, from inside the deploy gesture.
    Browsers only honour it while the document is fullscreen and only on
    phones, so every failure path is silent — the rotate gate below is the
@@ -1247,15 +1597,20 @@ function lockLandscape(){
 function checkOrientation(){
   const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
   const portrait = window.innerHeight > window.innerWidth;
-  const block = coarse && portrait;
-  if (block === PORTRAIT_BLOCKED) return;
-  PORTRAIT_BLOCKED = block;
-  document.body.classList.toggle("portrait-block", block);
+  const narrow = !!(coarse && portrait);
+  PORTRAIT_BLOCKED = false;                 // never freeze the loop again
+  if (narrow === PORTRAIT_MODE) return;
+  PORTRAIT_MODE = narrow;
+  document.body.classList.toggle("is-portrait", narrow);
+  document.body.classList.remove("portrait-block");
   const gate = document.getElementById("rotate-gate");
-  if (gate) gate.setAttribute("aria-hidden", block ? "false" : "true");
-  if (block) {
-    INPUT.setPointerLock(false);
-    if (GAME.state === "playing") GAME.pause();
+  if (gate) gate.setAttribute("aria-hidden", "true");
+  /* A tall window shows less arena across, so pull the camera back to
+     keep roughly the same amount of map in view. */
+  CAM.tzoom = baseZoom();
+  if (narrow && !PORTRAIT_HINTED && GAME.state === "playing") {
+    PORTRAIT_HINTED = true;
+    GAME.hint("rotate", "TURN YOUR DEVICE SIDEWAYS FOR A WIDER VIEW");
   }
 }
 function readSafeArea(){
@@ -1288,8 +1643,16 @@ function syncInputClass(){
 }
 
 let lastT = 0, acc = 0;
+/* requestAnimationFrame is re-armed first so the loop survives a throw,
+   but the frame itself is still lost and the error still reports as a
+   crash — so the body runs inside a guard and the input queue is
+   drained either way, or a stuck key would persist into the next frame. */
 function frame(tms){
   requestAnimationFrame(frame);
+  try { frameStep(tms); }
+  catch (e) { SAFETY._log("frame", e); SAFETY.run(() => INPUT.endFrame(), null, "frame-end"); }
+}
+function frameStep(tms){
   syncInputClass();
   const t = tms / 1000;
   let realDt = Math.min(0.1, t - lastT || 0.016);
@@ -1349,16 +1712,45 @@ function frame(tms){
   INPUT.endFrame();
 }
 
-window.addEventListener("load", async () => {
+/* ================================================================
+   BOOT
+   ----------------------------------------------------------------
+   Split into an outer guard and an inner sequence. A boot that throws
+   used to leave the page on the `booting` curtain with no screens and
+   no render loop — a permanent black rectangle, which the platform
+   reports as a load crash. Now any failure still drops the curtain,
+   opens the command deck and starts the loop.
+   ================================================================ */
+window.addEventListener("load", () => { bootGame(); });
+
+async function bootGame(){
+  try { await boot(); }
+  catch (e) {
+    SAFETY._log("boot", e);
+    document.body.classList.remove("booting");
+    SAFETY.run(() => showScreen("scr-main"), null, "boot-fallback");
+    requestAnimationFrame(frame);
+  }
+  SAFETY.booted = true;
+}
+
+async function boot(){
   cv = document.getElementById("game");
-  ctx = cv.getContext("2d");
+  ctx = cv && cv.getContext("2d");
+  if (!ctx) throw new Error("no 2d context");
   /* Initialise the CrazyGames SDK before anything reads saved data: the
      account is read here (every launch, since a device can be shared)
-     and the data module preloads that account's progress. */
-  await CG.init();
+     and the data module preloads that account's progress.
+
+     The handshake gets 2.5 seconds and no more. A slow ad network is
+     allowed to cost a moment; it is not allowed to cost the play. When
+     the deadline fires the storage layer falls back to localStorage on
+     its own and the game boots without the SDK. */
+  await SAFETY.deadline(CG.init(), 2500, null);
   CG.loadingStart();
   SAVE.load();
   SETTINGS = SAVE.data.settings;
+  META.bind();                    // meta must be live before any UI renders
   CG.applyMute();                 // honour the platform muteAudio setting
   // Phones/tablets and the CrazyGames App start a tier down so weaker
   // devices reach a stable frame rate immediately; auto-quality still
@@ -1371,14 +1763,16 @@ window.addEventListener("load", async () => {
     Math.min(window.innerWidth, window.innerHeight) <= 820;
   if (CG.device === "mobile" || CG.device === "tablet" || smallTouch) {
     autoTier = 2;
-    // Ultra is the desktop default; phones and tablets step down so the
-    // frame rate stays smooth on the weakest supported hardware.
-    if (SETTINGS.quality === "ultra") SETTINGS.quality = "high";
+    /* Phones start at Medium, not High. Auto-quality can still climb
+       back up once the frame rate proves itself, but the first sector —
+       which is where the allocation crash happens — is built at a size a
+       low-end GPU can actually hold. */
+    if (SETTINGS.quality === "ultra" || SETTINGS.quality === "high") SETTINGS.quality = "med";
   }
   resolveQuality();
   syncSettingsUI();
   refreshMainBest();
-  if (SAVE.data.lastMode && MODES[SAVE.data.lastMode]) GAME.mode = SAVE.data.lastMode;
+  if (SAVE.data.lastMode && MODES[SAVE.data.lastMode] && !modeLocked(SAVE.data.lastMode)) GAME.mode = SAVE.data.lastMode;
   /* From here a sign-in can arrive at any moment through the SDK auth
      listener, and the loaded profile and the menu are ready to follow it. */
   CG.onAccountChange = onAccountChange;
@@ -1388,19 +1782,44 @@ window.addEventListener("load", async () => {
   renderLocations();
   renderSquadSizes();
   renderDifficulties();
+  applyZoneTheme();
   refreshModeLabel();             // reveals the squad control if a team mode is saved
   INPUT.init(cv);
   bindUI();
   syncInputClass();
-  /* Launch lands on the command deck — never straight into a run. A
-     first-time operator gets the four-screen briefing ahead of it, and
-     everyone else goes to the menu directly. */
-  if (SAVE.data.onboarded) showScreen("scr-main");
-  else INTRO.show();
-  document.body.classList.remove("booting");
   window.addEventListener("resize", resize);
   window.addEventListener("orientationchange", () => setTimeout(resize, 80));
   checkOrientation();
-  CG.loadingStop();               // loading complete, menu is interactive
+  CG.loadingStop();               // loading complete
   requestAnimationFrame(frame);
-});
+  /* Launch lands in gameplay, not on a menu. Conversion is the share of
+     loads that reach gameplayStart(), and every screen between the page
+     and the tank spends a share of it — the Basic Launch report put that
+     cost at two thirds of everyone who arrives. A first-time operator
+     drops into a scripted cold-open sector that teaches by playing; a
+     returning one drops into the mode they last chose.
+
+     Nothing is removed: the command deck is one tap away on the HUD and
+     through pause, and the four-screen briefing lives on in the Manual
+     tab for anyone who wants it. */
+  document.body.classList.remove("booting");
+  autoDeploy();
+}
+
+/* The launch router. Called once, from boot(), after the save, the
+   settings and the meta layer are all live. */
+function autoDeploy(){
+  const first = !SAVE.data.onboarded;
+  if (first) {
+    /* A first session is not the place to ask a stranger to choose an
+       operation type or a difficulty tier. Campaign, adaptive, and a
+       scripted opening that cannot kill them in the first minute. */
+    GAME.mode = "campaign";
+    SETTINGS.difficulty = "adaptive";
+    COLDOPEN.arm();
+  } else if (SAVE.data.lastMode && MODES[SAVE.data.lastMode] && !modeLocked(SAVE.data.lastMode)) {
+    GAME.mode = SAVE.data.lastMode;
+  }
+  lockLandscape();
+  SAFETY.run(() => GAME.startRun(GAME.mode), null, "autodeploy");
+}

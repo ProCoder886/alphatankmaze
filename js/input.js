@@ -107,7 +107,8 @@ const INPUT = {
         // rack never also swings the turret.
         if (this._hitPower(p.x, p.y)) continue;
         if (p.x < window.innerWidth / 2 && this.touch.move.id === -1) {
-          this.touch.move = { id: t.identifier, sx: p.x, sy: p.y, x: p.x, y: p.y };
+          // t0 lets touchend tell a deliberate tap from a brief steering nudge
+          this.touch.move = { id: t.identifier, sx: p.x, sy: p.y, x: p.x, y: p.y, t0: performance.now() };
         } else if (this.touch.aim.id === -1) {
           this.touch.aim = { id: t.identifier, sx: p.x, sy: p.y, x: p.x, y: p.y };
         }
@@ -126,8 +127,13 @@ const INPUT = {
       this._touchT = performance.now();
       for (const t of e.changedTouches) {
         if (t.identifier === this.touch.move.id) {
-          // quick tap on move side = bomb
-          if (dist(this.touch.move.sx, this.touch.move.sy, this.touch.move.x, this.touch.move.y) < 14)
+          /* Quick tap on the move side plants a bomb. A 14px slop with
+             no time limit fired on ordinary steering corrections, which
+             wasted charges and read as the game doing things by itself;
+             a tap has to be brief as well as stationary. */
+          const held = performance.now() - (this.touch.move.t0 || 0);
+          if (held < 220 &&
+              dist(this.touch.move.sx, this.touch.move.sy, this.touch.move.x, this.touch.move.y) < 10)
             this.touch.bombTapT = 0.1;
           this.touch.move.id = -1;
         }

@@ -42,21 +42,31 @@ const DIRECTOR = {
   mul(k){ const t = this.tier(); return t ? t[k] : 1; },
   _fixed(){ const t = this.tier(); return t ? t.skill : null; },
   eff(){ const f = this._fixed(); return f === null ? this.skill : f; },
+  /* A first-session operator is not a returning veteran, and the live
+     skill estimate needs evidence before it is allowed to bite. The
+     first six runs are scaled down on a curve that reaches 1.0 by the
+     seventh — long enough to learn the controls, short enough that a
+     player who sticks around never notices it was there. */
+  graceMul(){
+    const runs = SAVE.data.stats.games | 0;
+    return runs >= 6 ? 1 : lerp(0.70, 1, runs / 6);
+  },
   /* Every sector is meant to be harder than the one before it, on top of
      whatever the tier already asks for. */
   levelRamp(){ return 1 + (GAME.level - 1) * 0.05; },
   aimErrMul(){ return lerp(1.55, 0.42, this.eff()) * this.mul("aim") / this.levelRamp(); },
   leadMul(){ return lerp(0.55, 1.25, this.eff()) * Math.min(1.35, this.levelRamp()); },
-  speedMul(){ return lerp(0.9, 1.16, this.eff()) * this.mul("speed") * Math.min(1.22, this.levelRamp()); },
-  hpMul(){ return lerp(0.88, 1.25, this.eff()) * this.mul("hp"); },
-  /* Rate of fire: hostile reload is scaled down by tier and by sector. */
-  reloadMul(){ return clamp(lerp(1.12, 0.86, this.eff()) * this.mul("fire") / this.levelRamp(), 0.32, 1.3); },
+  speedMul(){ return lerp(0.9, 1.16, this.eff()) * this.mul("speed") * Math.min(1.22, this.levelRamp()) * lerp(1, this.graceMul(), 0.6); },
+  hpMul(){ return lerp(0.88, 1.25, this.eff()) * this.mul("hp") * this.graceMul(); },
+  /* Rate of fire: hostile reload is scaled down by tier and by sector.
+     Dividing by grace makes the early reload longer, not shorter. */
+  reloadMul(){ return clamp(lerp(1.12, 0.86, this.eff()) * this.mul("fire") / this.levelRamp() / this.graceMul(), 0.32, 1.4); },
   lockMul(){ return lerp(1.35, 0.7, this.eff()) * this.mul("react"); },
   /* Boss attack cadence and enemy special-ability timers. */
   aggroMul(){ return clamp(lerp(1.2, 0.82, this.eff()) * this.mul("react"), 0.4, 1.3); },
   dropChance(){ return lerp(0.34, 0.17, this.eff()) * this.mul("drops"); },
   budget(level, wave){
-    return Math.round((13 + level * 7 + wave * 4.6) * lerp(0.75, 1.3, this.eff()) * this.mul("budget"));
+    return Math.round((13 + level * 7 + wave * 4.6) * lerp(0.75, 1.3, this.eff()) * this.mul("budget") * this.graceMul());
   },
   compose(level, budget){
     const unlocked = ["grunt"];
@@ -76,7 +86,13 @@ const DIRECTOR = {
        once in sector 1 is a wall rather than a difficulty curve — and it
        costs frames on a phone for no gain. Early sectors stay readable;
        later ones get genuinely crowded. */
-    const cap = clamp(6 + level, 6, 14);
+    /* A phone runs the same tactical FSM, the same A* repaths and the
+       same particle budget on a fraction of the GPU. Fewer but heavier
+       tanks read as the same pressure and hold the frame rate — and a
+       dropped frame rate is a short session, which is the metric this
+       is really protecting. */
+    const mob = CG.device === "mobile" || CG.device === "tablet" || INPUT.usingTouch;
+    const cap = mob ? clamp(4 + level, 4, 9) : clamp(6 + level, 6, 14);
     while (budget > 0 && out.length < cap && guard++ < 60) {
       const affordable = unlocked.filter(t => ENEMY_TYPES[t].cost <= budget);
       if (!affordable.length) break;
@@ -136,6 +152,9 @@ const WORLD = {
   weatherAcc: 0,
 
   reset(levelData){
+    /* Free the outgoing sector's floor — up to 6MB — before the new one
+       is on the heap rather than after, so the two never coexist. */
+    SAFETY.release(this.floorCv);
     this.map = levelData.map;
     this.theme = levelData.theme;
     this.floorCv = levelData.floorCv;
@@ -151,7 +170,7 @@ const WORLD = {
     TIMERS.length = 0;
     DECALS.init(this.map.cols * CFG.TILE, this.map.rows * CFG.TILE);
     this.player = new Player(levelData.playerSpawn.x, levelData.playerSpawn.y);
-    CAM.tzoom = 1;
+    CAM.tzoom = baseZoom();
     CAM.snap(this.player.x, this.player.y);
     MINI.dirty = true;
   },
@@ -219,6 +238,11 @@ const WORLD = {
   updateWeather(dt){
     const w = this.theme.weather;
     if (!w) return;
+    /* Combat always outranks atmosphere. Rain alone spawns up to 150
+       particles a second, and on a phone that competes directly with
+       the explosions the player actually needs to read. Once the pool
+       is mostly full, weather simply stops until it drains. */
+    if (PARTS.pool.length > QT.parts * 0.7) return;
     const rect = CAM.visible();
     const width = rect.x1 - rect.x0;
     const q = QT.weather;
@@ -277,7 +301,11 @@ const MINI = {
   rebuild(){
     const map = WORLD.map;
     if (!map) return;
-    if (!this.cv) { this.cv = document.createElement("canvas"); this.cx = this.cv.getContext("2d"); }
+    if (!this.cv) {
+      const made = SAFETY.canvas(2, 2);
+      if (!made) return;
+      this.cv = made.cv; this.cx = made.cx;
+    }
     this.cv.width = map.cols * this.scale;
     this.cv.height = map.rows * this.scale;
     const c = this.cx, s = this.scale;
@@ -296,6 +324,7 @@ const MINI = {
     const map = WORLD.map;
     if (!map) return;
     if (map.dirty || this.dirty) { this.rebuild(); map.dirty = false; }
+    if (!this.cv) return;                 // buffer refused: skip the minimap
     const mw = this.cv.width, mh = this.cv.height;
     // Top-right corner, sized so the WHOLE arena is always visible.
     const maxW = Math.min(210 * UIS, W * 0.26);
@@ -357,6 +386,12 @@ const MODES = {
                 bosses: true,  advance: true,  endless: true },
   training:   { id: "training",   name: "TRAINING",     sub: "Safe practice with every power",
                 bosses: false, advance: true,  invuln: true, allPowers: true, noFail: true },
+  /* One seeded arena, the same maze worldwide, resetting every 24h. The
+     generator is already a pure function of its seed, so this mode is
+     ordinary campaign play on a shared layout — and the single
+     strongest reason to open the tab again tomorrow. */
+  daily:      { id: "daily",      name: "DAILY OPERATION", sub: "One seeded arena · the same for everyone",
+                bosses: true,  advance: true,  daily: true },
   /* --- team modes: both sides field tanks on an ordinary arena --- */
   /* Both team modes advance: clearing the objective opens a Proceed
      button onto a freshly generated arena rather than ending the run. */
@@ -366,7 +401,7 @@ const MODES = {
                 bosses: false, advance: true, teams: true, squad: true,
                 bases: true, respawn: true },
 };
-const MODE_ORDER = ["campaign", "survival", "timeattack", "quick",
+const MODE_ORDER = ["daily", "campaign", "survival", "timeattack", "quick",
                     "basewar", "team", "endless", "freerun", "training"];
 
 /* ================================================================
@@ -409,8 +444,13 @@ const GAME = {
   resetStats(){
     this.stats = { shots: 0, hits: 0, kills: 0, bombs: 0, damageTaken: 0, pickups: 0, time: 0, bricks: 0, powers: 0 };
   },
-  startRun(modeId){
+  startRun(modeId, startLevel){
     if (modeId && MODES[modeId]) this.mode = modeId;
+    /* Counted first, before any generation work that could throw. The
+       player is committed at this point and the metric should say so —
+       it used to fire after startLevel(), applyLoadout() and a dozen
+       other calls, any one of which could cost the play. */
+    CG.gameplayStart();
     const M = this.def();
     this.finished = false;
     this.timeLeft = M.timeLimit || 0;
@@ -422,18 +462,27 @@ const GAME = {
     this.deathRealT = -1;
     this.teamWinT = 0;
     this.revivesUsed = 0;          // rewarded revive is once per run
+    /* Free field repairs, spent before the run is allowed to end. A run
+       that stops on the first mistake is a four-minute session; a run
+       that stops when the player decides it does is a long one. */
+    this.freeContinues = CFG.FREE_CONTINUES;
+    /* Perks first: PERKS.reset() restores the base charge caps that
+       DEEP MAGAZINE mutates, and POWERS.reset() reads them. */
+    PERKS.reset();
     POWERS.reset(M.allPowers ? 9 : 0);
     this.killStreak = 0;
     this.pendingLoadout = this.pendingLoadout || null;
     DIRECTOR.reset();
-    this.level = 1;
+    /* Redeploy resumes from the banked checkpoint rather than sector
+       one: starting a fifteen-minute climb over from the beginning is
+       the moment most players close the tab. */
+    this.level = clamp(startLevel | 0 || 1, 1, 99);
     this.startLevel(this.level);
     if (M.invuln) WORLD.player.invuln = 1e9;
     this.applyLoadout();           // consume a claimed supply-drop reward
     this.state = "playing";
     showScreen(null);
     CG.clearAllBanners();
-    CG.gameplayStart();
     INPUT.setPointerLock(true);
     AUDIO.resume();
     AUDIO.startEngine();
@@ -442,10 +491,32 @@ const GAME = {
     this.touchHintT = INPUT.usingTouch ? 6 : 0;
     this.hint("move", INPUT.usingTouch
       ? "LEFT THUMB DRIVE — RIGHT THUMB AIM & FIRE — TAP LEFT SIDE FOR BOMB"
-      : "WASD DRIVE — MOUSE AIM — HOLD LMB FIRE — SPACE BOMB");
+      : "WASD DRIVE — MOUSE AIM — HOLD LMB FIRE — SPACE BOMB — P FOR MENU");
+  },
+  /* Arena generation for a sector, in one place so that every route
+     that rebuilds the world — a new sector, a revive, a free continue —
+     produces the arena the current mode actually calls for.
+
+     The daily operation runs on a seed derived from the UTC date, so
+     every player in the world fights the identical maze, arena shape and
+     deployment zone for 24 hours; that is what makes a daily score worth
+     comparing and the tab worth reopening. The shape and the zone have
+     to be seeded explicitly: left to the generator they come from
+     rollRandomShape() and rollRandomZone(), which deliberately use
+     Math.random so ordinary runs never repeat. A seeded maze under a
+     randomly chosen skin would not be the same arena. */
+  genForLevel(level){
+    if (!this.def().daily) return genLevel(level);
+    const dseed = (META.dailySeed() + level * 7919) >>> 0;
+    const drng = mulberry32(dseed ^ 0x9E3779B9);
+    return genLevel(level, {
+      seed: dseed,
+      shape: SHAPES[(drng() * SHAPES.length) | 0].id,
+      theme: (drng() * THEMES.length) | 0,
+    });
   },
   startLevel(level){
-    const data = genLevel(level);
+    const data = this.genForLevel(level);
     WORLD.reset(data);
     this.wave = 0;
     const M = this.def();
@@ -455,7 +526,7 @@ const GAME = {
     this.barrelsLeft = WORLD.barrels.length;
     this.obstaclesTotal = WORLD.emplacements.length;
     this.waveState = M.noEnemies ? "explore" : (M.teams ? "battle" : "prep");
-    this.prepT = 2.4;
+    this.prepT = CFG.PREP_FIRST;
     this.modifier = null;
     this.teamWinT = 0;
     if (M.teams) this.deployTeams(M);
@@ -643,7 +714,9 @@ const GAME = {
   startWave(n){
     this.wave = n;
     this.waveStartT = this.stats.time;
-    this.modifier = DIRECTOR.rollModifier(this.level, n);
+    /* A first session meets no wave modifiers: "GHOST PROTOCOL" means
+       nothing to someone who has not yet met a stealth tank. */
+    this.modifier = COLDOPEN.on ? null : DIRECTOR.rollModifier(this.level, n);
     const M = this.def();
     const isBossWave = (this.bossLevel && n === this.wavesTotal) ||
                        (M.survival && M.bosses && n % 5 === 0);
@@ -653,13 +726,14 @@ const GAME = {
       this.showBanner("⚠ " + (ENEMY_TYPES[bossTypeForLevel(this.level)].title || "BOSS") + " DETECTED", "Neutralize the boss", 3);
       AUDIO.bossAlert();
       AUDIO.setMusicMode("boss");   // darker mode, faster floor, tritone drone
-      CAM.tzoom = 0.88;
+      CAM.tzoom = baseZoom() * 0.88;   // boss waves pull back a little further
       this.hint("boss", "COMMAND UNIT — DODGE THE CHARGE, PUNISH THE SPIN-UP");
     } else {
       AUDIO.setMusicMode("combat");
-      comp = (this.modifier && this.modifier.force)
-        ? this.modifier.force.slice()
-        : DIRECTOR.compose(M.survival ? 1 + Math.floor(n / 2) : this.level, DIRECTOR.budget(this.level, n));
+      comp = COLDOPEN.composition(n)
+        || ((this.modifier && this.modifier.force)
+          ? this.modifier.force.slice()
+          : DIRECTOR.compose(M.survival ? 1 + Math.floor(n / 2) : this.level, DIRECTOR.budget(this.level, n)));
       this.showBanner(M.survival ? "WAVE " + n : "WAVE " + n + " / " + this.wavesTotal,
         this.modifier ? "⚡ " + this.modifier.label : "", 2.2);
       AUDIO.waveFanfare();
@@ -761,6 +835,10 @@ const GAME = {
   },
   onEnemyDead(e, src){
     this.stats.kills++;
+    COLDOPEN.onKill(e);
+    /* Salvage Intake perk: hull recovered per kill. */
+    if (PERKS.flags.lifesteal && WORLD.player && WORLD.player.alive)
+      WORLD.player.hp = Math.min(WORLD.player.maxHp, WORLD.player.hp + PERKS.flags.lifesteal);
     DIRECTOR.onPlayerKill();
     /* Kill reward: every 6th kill in a streak refills a superpower, so
        powers are earned by playing rather than only bought with ads. */
@@ -785,7 +863,7 @@ const GAME = {
     this.freeze = Math.max(this.freeze, e.boss ? 0.15 : 0.034);  // seconds
     if (e.boss) {
       this.slowmo(0.25, 1.1);
-      CAM.tzoom = 1;
+      CAM.tzoom = baseZoom();
       CAM.addShake(0.8);
       this.addSalvage(100);
       POWERS.grantRandom(2);
@@ -795,7 +873,7 @@ const GAME = {
       for (let i = 0; i < 4; i++)
         setTimeoutSafe(() => explode(e.x + rand(-50, 50), e.y + rand(-50, 50), { radius: 80, dmg: 0, breakTiles: true }), i * 140);
       for (let i = 0; i < 3; i++) spawnPickup(e.x + rand(-40, 40), e.y + rand(-40, 40));
-    } else if (chance(DIRECTOR.dropChance())) {
+    } else if (chance(DIRECTOR.dropChance() * (PERKS.flags.dropMul || 1))) {
       spawnPickup(e.x, e.y);
     }
   },
@@ -807,6 +885,17 @@ const GAME = {
       pl.shieldHp = 0; pl.shieldT = 0;
       fxSpawnPortal(pl.x, pl.y, "#8ffff6");
       this.showBanner("SYSTEMS RESTORED", "No failure in this mode", 1.8);
+      return;
+    }
+    /* Free field repairs come first. The rewarded-ad and salvage offers
+       are still there once these run out, and they read far better as
+       the third chance than as the first — a player with no salvage
+       being asked to watch an ad thirty seconds in just leaves. */
+    if ((this.freeContinues | 0) > 0) {
+      this.freeContinues--;
+      this.revivePlayer(true, true);
+      this.showBanner("FIELD REPAIR COMPLETE",
+        this.freeContinues + " repair" + (this.freeContinues === 1 ? "" : "s") + " remaining", 2.4);
       return;
     }
     this.waveState = "dead";
@@ -849,6 +938,9 @@ const GAME = {
 
   /* ---- reward payloads (identical whether earned by ad or salvage) ---- */
   applyLoadout(){
+    /* Drafted perks that act at the top of a sector rather than once:
+       the reactive shield and the permanent escort drone. */
+    PERKS.onSectorStart(WORLD.player);
     if (this.pendingArmour && WORLD.player) {
       WORLD.player.hp = Math.min(WORLD.player.maxHp, WORLD.player.hp + 35);
       WORLD.player.shieldHp = 45; WORLD.player.shieldT = 12;
@@ -866,17 +958,23 @@ const GAME = {
     fxPickupSparkle(pl.x, pl.y, "#8ffff6");
   },
   /* Revive: rebuild the player in place, keeping score and sector. */
-  revivePlayer(inPlace){
-    this.revivesUsed++;
-    const data = genLevel(this.level);
+  revivePlayer(inPlace, free){
+    /* A free field repair must not consume the once-per-run rewarded
+       revive — that offer is still the player's to spend later. */
+    if (!free) this.revivesUsed++;
+    const data = this.genForLevel(this.level);
     WORLD.reset(data);
     const pl = WORLD.player;
+    /* WORLD.reset() built a fresh tank, so the drafted build has to be
+       replayed onto it before anything reads maxHp — without this a run
+       lost every upgrade it had earned the moment it used a repair. */
+    PERKS.onSectorStart(pl);
     pl.hp = pl.maxHp;
     pl.shieldHp = 45; pl.shieldT = 12;
     pl.bombs = Math.min(pl.maxBombs, pl.bombs + 2);
     pl.invuln = 2.5;
     this.waveState = "prep";
-    this.prepT = 2.4;
+    this.prepT = CFG.PREP_FIRST;
     // A full revive replays the wave that killed you; an emergency
     // respawn drops you back into the same one.
     if (!inPlace) this.wave = Math.max(0, this.wave - 1);
@@ -911,6 +1009,7 @@ const GAME = {
 
   update(dt){
     this.stats.time += dt;
+    COLDOPEN.update(dt);
     this.banner.t += dt;
     const M = this.def();
     // Time Attack clock — the run ends when it expires, not on death
@@ -1007,7 +1106,7 @@ const GAME = {
             AUDIO.waveFanfare();
           } else {
             this.waveState = "prep";
-            this.prepT = 3.2;
+            this.prepT = CFG.PREP_WAVE;
             this.showBanner("WAVE CLEARED", "Resupply inbound", 1.8);
             spawnPickup(WORLD.player.x + rand(-60, 60), WORLD.player.y + rand(-60, 60));
             if (chance(0.5)) spawnPickup(WORLD.player.x + rand(-80, 80), WORLD.player.y + rand(-80, 80));
@@ -1023,12 +1122,18 @@ const GAME = {
   },
 
   levelComplete(){
+    COLDOPEN.disarm();          // a cleared first sector is "onboarded"
     const M = this.def();
     // A one-sector mode finishes the whole run here instead
     if (M.single) { this.runComplete("SECTOR SECURED"); return; }
     this.state = "levelend";
     CG.gameplayStop();
     SAVE.data.stats.levels++;
+    /* Deepest sector reached, banked so a death is a setback rather than
+       a reset. Sector-advancing solo modes only — survival, the timed
+       modes and the team modes have no sector to return to. */
+    if (M.advance && !M.teams && !M.survival)
+      META.data.checkpoint = Math.max(META.data.checkpoint | 0, this.level);
     this.addSalvage(40 + this.level * 10);
     POWERS.grantRandom(1);         // stage-clear power reward
     // endless game: sector 10 is treated as 100% completion
@@ -1047,8 +1152,14 @@ const GAME = {
       M.bases ? "Hostile HQ Destroyed"
       : M.teams ? "Hostile Squad Eliminated"
       : "Sector " + this.level + " Cleared";
-    const nextBtn = document.querySelector('#scr-level [data-act="next"]');
-    if (nextBtn) nextBtn.innerHTML = (M.teams ? "Proceed" : "Advance") + " &nbsp;&#9654;";
+    /* Advance now opens the field refit rather than the next sector
+       directly. The button keeps its position and styling, so nothing
+       about the flow shifts — there is simply a choice inside it. */
+    const nextBtn = document.querySelector('#scr-level [data-act="next"], #scr-level [data-act="perk-open"]');
+    if (nextBtn) {
+      nextBtn.dataset.act = "perk-open";
+      nextBtn.innerHTML = "Field Refit &nbsp;&#9654;";
+    }
     document.getElementById("lc-stats").innerHTML =
       statRow("Score", fmt(this.score)) +
       (M.teams ? statRow("Stage", this.level) + statRow("Squad", this.squadSize() + " v " + this.squadSize()) : "") +
@@ -1059,6 +1170,7 @@ const GAME = {
                : statRow("Bricks razed", this.stats.bricks)) +
       statRow("Time", padTime(this.stats.time));
     showScreen("scr-level");
+    animateResults("lc-stats");
     INPUT.setPointerLock(false);
     // Rotate the sector-clear offer so it never feels like the same prompt
     const clearOffers = ["bonus", "power", "armour", "salvagerun"];
@@ -1116,6 +1228,14 @@ const GAME = {
     S.bricks += this.stats.bricks;
     S.playTime += this.stats.time;
     S.games += 1;
+    /* Every run advances the operator, even a bad one. A run that awards
+       nothing is a run the player regrets, and a regretted run is not
+       followed by another one tomorrow. */
+    const xp = META.runXp();
+    const gain = META.addXp(xp);
+    const contracts = META.scoreContracts();
+    const streakPay = this.def().daily ? META.completeDaily(this.score) : 0;
+    this.lastXp = { amount: xp, levels: gain.levels, unlocked: gain.unlocked, contracts, streakPay };
     const isRecord = SAVE.addScore(this.score, this.level);
     const acc = this.stats.shots ? Math.round(100 * this.stats.hits / this.stats.shots) : 0;
     document.getElementById("go-score").textContent = fmt(this.score);
@@ -1150,8 +1270,17 @@ const GAME = {
       statRow("Powers used", this.stats.powers || 0) +
       statRow("Damage taken", Math.round(this.stats.damageTaken)) +
       statRow("Survived", padTime(this.stats.time));
+    renderRunProgress(this.lastXp);
     if (isRecord) CG.happytime();          // platform celebration: new best
     showScreen("scr-over");
+    /* Roll the numbers rather than printing them. */
+    animateResults("go-stats", "go-score", this.score);
+    /* Announce what was earned, in the order it matters. */
+    if (isRecord) TOAST.push("New service record", fmt(this.score) + " points", "var(--hostile-hot)");
+    for (const u of (this.lastXp.unlocked || []))
+      TOAST.push("Operator " + META.data.lvl, u.label, "var(--ok)");
+    for (const c of (this.lastXp.contracts || []))
+      TOAST.push("Contract complete", c.text + " · +" + c.pay + " salvage", "var(--friend)");
     INPUT.setPointerLock(false);
     // Death offers alternate between a full revive and an emergency respawn
     renderOffer("offer-over", (SAVE.data.stats.deaths | 0) % 2 === 0 ? "revive" : "respawn");

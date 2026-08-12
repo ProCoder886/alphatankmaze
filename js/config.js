@@ -35,16 +35,30 @@ const CFG = {
      a squad has to survive the crossing to reach the objective at all. */
   BASE_GAP: 15,
   TEAM_GAP: 20,
-  VERSION: "1.0",
+  /* Field repairs granted at the start of every run, spent before the
+     run is allowed to end. The only way past death used to be a
+     rewarded ad or 150 salvage, and a first-session player has neither —
+     so one mistake ended the session at the four-minute mark. */
+  FREE_CONTINUES: 2,
+  /* Dead time between waves. Long prep beats read as padding, and a
+     bored player closes the tab rather than waiting one out. */
+  PREP_FIRST: 1.6,
+  PREP_WAVE: 2.2,
+  VERSION: "2.0",
 };
 
 const QUALITY = {
   /* floorScale keeps the pre-rendered floor canvas affordable on weaker
-     devices now that arenas are twice as large in each dimension. */
-  ultra:{ parts: 2000, lightScale: 1.0,  weather: 1.4, shellLights: 40, dpr: 2.0, floorScale: 1.0,  detail: 1.6, reflect: true },
-  high: { parts: 1000, lightScale: 1.0,  weather: 1.0, shellLights: 26, dpr: 2.0, floorScale: 1.0,  detail: 1.0, reflect: true },
-  med:  { parts: 520,  lightScale: 0.6,  weather: 0.6, shellLights: 12, dpr: 1.5, floorScale: 0.7,  detail: 0.6, reflect: false },
-  low:  { parts: 240,  lightScale: 0.45, weather: 0.3, shellLights: 4,  dpr: 1.0, floorScale: 0.5,  detail: 0.35, reflect: false },
+     devices now that arenas are twice as large in each dimension. It is
+     also capped absolutely in buildFloor(), because a scale of 1.0 on a
+     51x31 arena is a 14.6MB allocation every single sector — which is
+     what the 2.67% load-crash and 1.24% gameplay-crash rates were made
+     of on phones. High no longer asks a mid-range device for a
+     desktop-sized buffer. */
+  ultra:{ parts: 2000, lightScale: 1.0,  weather: 1.4, shellLights: 40, dpr: 2.0,  floorScale: 1.0,  detail: 1.6, reflect: true },
+  high: { parts: 900,  lightScale: 0.85, weather: 1.0, shellLights: 26, dpr: 1.75, floorScale: 0.8,  detail: 1.0, reflect: true },
+  med:  { parts: 480,  lightScale: 0.6,  weather: 0.6, shellLights: 12, dpr: 1.5,  floorScale: 0.6,  detail: 0.6, reflect: false },
+  low:  { parts: 240,  lightScale: 0.45, weather: 0.3, shellLights: 4,  dpr: 1.0,  floorScale: 0.45, detail: 0.35, reflect: false },
 };
 const QUALITY_TIERS = ["ultra", "high", "med", "low"];
 let QT = QUALITY.ultra;  // resolved quality tier
@@ -105,7 +119,7 @@ const SAVE = {
   data: null,
   defaults(){
     return {
-      v: 2,
+      v: 3,
       /* Set once the first-run briefing has been seen or skipped. It
          lives in the save rather than in localStorage, so it follows the
          player's CrazyGames account to every device they play on. */
@@ -117,12 +131,24 @@ const SAVE = {
          consent, and the menu badge reads it to offer (or stop offering)
          the link action. */
       linkedId: null,
-      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "master", location: "random", teamSize: 3 },
+      /* Adaptive is the default. Master asks a stranger to fight tanks
+         with +42% hull, +42% spawn budget, a 47% faster rate of fire,
+         34% tighter aim and 24% fewer supply drops than Soldier — a
+         veteran tier handed to someone who has never driven the tank,
+         and the reason the median session ran four minutes. Adaptive
+         starts near Soldier and climbs to Master on its own, for the
+         players who earn it. */
+      settings: { sfx: 0.8, music: 0.55, shake: 1, quality: "ultra", crt: false, fps: false, difficulty: "adaptive", location: "random", teamSize: 3 },
       scores: [],
       /* salvage = the non-ad currency players can spend on the same
          bonuses the rewarded ads grant (SDK requires an alternative).
          bestPct = highest completion % already reported to CrazyGames. */
       stats: { kills: 0, deaths: 0, shots: 0, hits: 0, bombs: 0, levels: 0, bricks: 0, playTime: 0, best: 0, games: 0, salvage: 0, bestPct: 0 },
+      /* Everything that survives a run: operator level, unlocks, the
+         daily operation and its streak, today's contracts and the
+         sector checkpoint. Shape is owned by META.defaults(); this is
+         only the storage slot inside the synced save document. */
+      meta: null,
     };
   },
   load(){
@@ -141,12 +167,13 @@ const SAVE = {
         d.lastMode = p.lastMode;
         d.onboarded = !!p.onboarded;
         d.linkedId = typeof p.linkedId === "string" && p.linkedId ? p.linkedId : null;
-        /* v2 raised the baseline difficulty and made Master the default.
-           Saves written before that carried the old default, so they are
-           moved onto the new one once; anything the player had actually
-           chosen for themselves is left alone. */
-        if ((p.v | 0) < 2 && (!p.settings || p.settings.difficulty === "adaptive"))
-          d.settings.difficulty = "master";
+        d.meta = p.meta && typeof p.meta === "object" ? p.meta : null;
+        /* v3 reverses the v2 migration. v2 moved every unconfigured save
+           onto Master, which is a tier for players who ask for it; anyone
+           who never opened the difficulty select goes back to adaptive.
+           A tier the player chose themselves is still theirs. */
+        if ((p.v | 0) < 3 && (!p.settings || p.settings.difficulty === "master"))
+          d.settings.difficulty = "adaptive";
       }
       this.data = d;
     } catch (e) { this.data = this.defaults(); }

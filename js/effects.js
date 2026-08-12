@@ -226,7 +226,20 @@ function fxExplosionVisual(x, y, radius){
   fxFireBurst(x, y, Math.round(14 + 12 * s), radius * 0.6);
   fxSparkBurst(x, y, Math.round(10 + 10 * s));
   fxSmokePuffs(x, y, Math.round(6 + 6 * s), { speed: 80, big: 44, life: 2.0, color: "#565c63" });
+  /* Two rings at different speeds and a set of directional debris arcs.
+     The flash-fire-smoke stack alone reads as a cloud; a leading edge
+     travelling outward is what makes it read as a detonation. */
   fxRing(x, y, radius * 1.15, "rgba(255,214,150,0.9)", 0.35);
+  fxRing(x, y, radius * 1.9, "rgba(255,244,214,0.42)", 0.5);
+  const arcs = Math.round(3 + 3 * s);
+  for (let i = 0; i < arcs; i++) {
+    const a = rand(0, TAU), sp = rand(240, 420) * (0.6 + s * 0.5);
+    PARTS.spawn({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      type: "trail", size: 8 + s * 5, size2: 0.5, life: rand(0.22, 0.4),
+      color: "#ffd9a0", drag: 0.82, layer: 1, vip: true,
+    });
+  }
   LIGHTS.flash(x, y, radius * 2.6, 0.28, 1.0);
 }
 function fxBrickBurst(x, y, color){
@@ -259,12 +272,21 @@ const LIGHTS = {
   cv: null, cx: null, scale: 1,
   steady: [],   // cleared each frame: {x,y,r,i}
   flashes: [],  // transient:        {x,y,r,ttl,max,i}
+  /* Returns false when the buffer could not be allocated, which the
+     caller must treat as "skip the lighting pass" rather than as an
+     error: getContext returns null under memory pressure instead of
+     throwing, so the crash used to land on the line after this one. */
   ensure(){
-    if (!this.cv) { this.cv = document.createElement("canvas"); this.cx = this.cv.getContext("2d"); }
+    if (!this.cv) {
+      const made = SAFETY.canvas(2, 2);
+      if (!made) return false;
+      this.cv = made.cv; this.cx = made.cx;
+    }
     const s = QT.lightScale;
     const w = Math.max(2, Math.round(W * s)), h = Math.max(2, Math.round(H * s));
     if (this.cv.width !== w || this.cv.height !== h) { this.cv.width = w; this.cv.height = h; }
     this.scale = s;
+    return true;
   },
   add(x, y, r, i){ this.steady.push({ x, y, r, i: i === undefined ? 1 : i }); },
   flash(x, y, r, ttl, i){ this.flashes.push({ x, y, r, ttl, max: ttl, i: i === undefined ? 1 : i }); },
@@ -277,7 +299,7 @@ const LIGHTS = {
   render(mainCtx, ambient, tint){
     this.steady.length > 400 && (this.steady.length = 400);
     if (ambient <= 0.03) { this.steady.length = 0; return; }
-    this.ensure();
+    if (!this.ensure()) { this.steady.length = 0; return; }
     const c = this.cx, s = this.scale;
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.globalCompositeOperation = "source-over";
@@ -314,10 +336,13 @@ const DECALS = {
     // Half-resolution decal layer keeps memory sane on the larger arenas;
     // scorch marks and treads are soft, so the loss is invisible.
     this.scale = (QT.floorScale || 1) >= 1 ? 0.5 : 0.35;
-    this.cv = document.createElement("canvas");
-    this.cv.width = Math.max(2, Math.round(w * this.scale));
-    this.cv.height = Math.max(2, Math.round(h * this.scale));
-    this.cx = this.cv.getContext("2d");
+    /* The outgoing sector's layer is freed before the replacement is
+       allocated — on iOS the backing store outlives the reference, so
+       dropping it and allocating the next one stacks both in memory. */
+    SAFETY.release(this.cv);
+    const made = SAFETY.canvas(w * this.scale, h * this.scale);
+    if (!made) { this.cv = null; this.cx = null; return; }
+    this.cv = made.cv; this.cx = made.cx;
     this.cx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     this.w = w; this.h = h;
   },
@@ -374,6 +399,79 @@ const NOISES = {
     for (const n of this.list)
       if (dist2(x, y, n.x, n.y) < n.r * n.r) return n;
     return null;
+  },
+};
+
+/* ================================================================
+   POST — screen-space bloom
+   ----------------------------------------------------------------
+   Muzzle flashes, explosions, shell tracers and the accent lighting
+   are all already drawn additively; bloom is what makes them read as
+   *light* rather than as bright paint. It is the single largest
+   perceived-quality gain available for the cost.
+
+   Done at quarter resolution: downsample the finished frame, multiply
+   it against itself twice so only genuinely bright pixels survive
+   (a cheap stand-in for a luminance threshold — canvas 2D has no
+   shader to do it properly), blur, then composite back additively.
+
+   Skipped entirely on the tiers that cannot afford it, and skipped if
+   the browser has no filter support rather than drawing an unblurred
+   smear over the frame.
+   ================================================================ */
+const POST = {
+  a: null, ax: null, b: null, bx: null, w: 0, h: 0,
+  supported: null,
+
+  can(){
+    if (this.supported === null) {
+      const t = SAFETY.canvas(2, 2);
+      this.supported = !!(t && typeof t.cx.filter === "string");
+      if (t) SAFETY.release(t.cv);
+    }
+    return this.supported && QT.reflect;
+  },
+  ensure(w, h){
+    if (this.a && this.w === w && this.h === h) return true;
+    SAFETY.release(this.a); SAFETY.release(this.b);
+    const A = SAFETY.canvas(w, h), B = SAFETY.canvas(w, h);
+    if (!A || !B) { this.a = this.b = null; return false; }
+    this.a = A.cv; this.ax = A.cx;
+    this.b = B.cv; this.bx = B.cx;
+    this.w = w; this.h = h;
+    return true;
+  },
+  /* `src` is the live game canvas; `w`/`h` are its CSS-pixel size. */
+  render(mainCtx, src, w, h){
+    if (!this.can()) return;
+    const s = 0.25;
+    const bw = Math.max(2, Math.round(w * s)), bh = Math.max(2, Math.round(h * s));
+    if (!this.ensure(bw, bh)) return;
+    const A = this.ax, B = this.bx;
+
+    A.setTransform(1, 0, 0, 1, 0, 0);
+    A.globalCompositeOperation = "source-over";
+    A.clearRect(0, 0, bw, bh);
+    A.drawImage(src, 0, 0, bw, bh);
+
+    /* B = A cubed, near enough. Midtones fall away fast, highlights
+       survive — which is the whole point of a threshold. */
+    B.setTransform(1, 0, 0, 1, 0, 0);
+    B.globalCompositeOperation = "source-over";
+    B.clearRect(0, 0, bw, bh);
+    B.drawImage(this.a, 0, 0);
+    B.globalCompositeOperation = "multiply";
+    B.drawImage(this.a, 0, 0);
+    B.drawImage(this.a, 0, 0);
+    B.globalCompositeOperation = "source-over";
+
+    mainCtx.save();
+    mainCtx.globalCompositeOperation = "lighter";
+    mainCtx.globalAlpha = 0.42;
+    mainCtx.filter = "blur(" + Math.max(2, Math.round(4 * (w / 1280))) + "px)";
+    mainCtx.drawImage(this.b, 0, 0, w, h);
+    mainCtx.filter = "none";
+    mainCtx.restore();
   },
 };
 

@@ -41,6 +41,12 @@
   </div>
 </div>
 
+<!-- ============ TOAST STACK ============
+     Queued progression announcements — contract complete, operator
+     level, new record. Sits above the UI layer and outside the screens
+     so it can appear over gameplay as well as over a panel. -->
+<div id="toasts" aria-live="polite"></div>
+
 <div id="ui">
 
   <!-- ============ FIRST-RUN BRIEFING ============
@@ -185,6 +191,10 @@
 
       <!-- ---- Operation: mode + location + the optional ad offer ---- -->
       <div class="tabpanel on" id="tab-op">
+        <!-- Daily operation and today's contracts: the return hooks.
+             Filled by renderDaily() / renderContracts(). -->
+        <div class="daily-card" id="daily-card"></div>
+        <div class="contracts" id="contracts"></div>
         <div class="tab-h">Operation type</div>
         <div class="mode-list" id="mode-list"></div>
         <div class="tab-h">Location</div>
@@ -344,6 +354,10 @@
       <div class="record-flag" id="go-record">&#9733; New Service Record &#9733;</div>
       <div class="big-score" id="go-score">0</div>
       <div class="stat-grid" id="go-stats"></div>
+      <!-- Operator progression: XP earned, the level bar, completed
+           contracts and the next named unlock. Filled by
+           renderRunProgress() at the moment of highest emotion. -->
+      <div class="progress-block" id="go-progress"></div>
       <!-- Optional rewarded-ad offer: field repair drone (revive) -->
       <div class="offer" id="offer-over"></div>
       <div class="btn-row">
@@ -352,6 +366,21 @@
       </div>
       <!-- In-game banner: static screen only, never during gameplay -->
       <div class="cg-banner" id="banner-over"></div>
+    </div>
+  </div>
+
+  <!-- ============ FIELD REFIT — perk draft ============
+       Three run-scoped upgrades, offered at every sector clear. Sits
+       between the clearance screen and the next sector, so every run
+       builds differently and pushing one sector deeper is a choice
+       rather than a repetition. -->
+  <div class="screen" id="scr-perk">
+    <div class="panel center">
+      <div class="eyebrow" style="color:var(--friend)">// Field refit</div>
+      <h2 class="scr-h">Choose an Upgrade</h2>
+      <div class="scr-sub" id="perk-sub">Sector 2 loadout</div>
+      <div class="perk-grid" id="perk-grid"></div>
+      <div class="perk-taken" id="perk-taken"></div>
     </div>
   </div>
 
@@ -374,18 +403,25 @@
 
 <!-- ================================================================
      ENGINE SCRIPTS — load order matters (shared top-level globals):
-       0. crazygames.js — CrazyGames SDK v3: account, data, ads, banners
-       1. config.js   — CFG / quality / math utils / seeded RNG / SAVE
-       2. audio.js    — procedural Web Audio SFX + adaptive music
-       3. input.js    — keyboard / mouse / gamepad / touch
-       4. camera.js   — follow, look-ahead, trauma shake, zoom
-       5. effects.js  — particles, lighting, decals, noises, screen FX
-       6. worldgen.js — themes, tilemap, maze generator, A* pathfinding
-       7. combat.js   — shells, bombs, mines, barrels, pickups, explosions
-       8. tanks.js    — physics chassis, Player, Enemy tactical FSM AI
-       9. game.js     — AI Director, WORLD simulation, minimap, game state
-      10. main.js     — HUD, render pipeline, UI wiring, main loop, boot
+       0. safety.js   — crash containment: MUST be first, nothing may
+                        throw before the global handlers are installed
+       1. crazygames.js — CrazyGames SDK v3: account, data, ads, banners
+       2. config.js   — CFG / quality / math utils / seeded RNG / SAVE
+       3. audio.js    — procedural Web Audio SFX + adaptive music
+       4. input.js    — keyboard / mouse / gamepad / touch
+       5. camera.js   — follow, look-ahead, trauma shake, zoom
+       6. effects.js  — particles, lighting, decals, noises, screen FX
+       7. worldgen.js — themes, tilemap, maze generator, A* pathfinding
+       8. combat.js   — shells, bombs, mines, barrels, pickups, explosions
+       9. powers.js   — the seven superpowers and their world objects
+      10. perks.js    — run-scoped upgrade draft (reads POWERS)
+      11. meta.js     — XP, unlocks, daily operation, streak, contracts
+      12. tanks.js    — physics chassis, Player, Enemy tactical FSM AI
+      13. game.js     — AI Director, WORLD simulation, minimap, game state
+      14. coldopen.js — scripted first session (reads GAME, POWERS)
+      15. main.js     — HUD, render pipeline, UI wiring, main loop, boot
      ================================================================ -->
+<script src="js/safety.js"></script>
 <script src="js/crazygames.js"></script>
 <script src="js/config.js"></script>
 <script src="js/audio.js"></script>
@@ -395,8 +431,11 @@
 <script src="js/worldgen.js"></script>
 <script src="js/combat.js"></script>
 <script src="js/powers.js"></script>
+<script src="js/perks.js"></script>
+<script src="js/meta.js"></script>
 <script src="js/tanks.js"></script>
 <script src="js/game.js"></script>
+<script src="js/coldopen.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

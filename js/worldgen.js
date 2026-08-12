@@ -263,6 +263,27 @@ class TileMap {
       if (!this.solidAt(cc, r)) continue;
       c.fillRect(cc * T + 5, r * T + 7, T, T);
     }
+    /* Ambient occlusion: a short gradient bleeding out of every wall
+       onto the floor beside it. The drop shadow above gives the walls
+       height; this gives the floor a corner to sit in, and together
+       they are what stop the maze reading as flat coloured squares. */
+    const AO = 10;
+    for (let r = r0; r <= r1; r++) for (let cc = c0; cc <= c1; cc++) {
+      if (this.solidAt(cc, r)) continue;
+      const x = cc * T, y = r * T;
+      const edge = (sc, sr, gx0, gy0, gx1, gy1, rx, ry, rw, rh) => {
+        if (!this.solidAt(sc, sr)) return;
+        const g = c.createLinearGradient(gx0, gy0, gx1, gy1);
+        g.addColorStop(0, "rgba(0,0,0,0.20)");
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        c.fillStyle = g;
+        c.fillRect(rx, ry, rw, rh);
+      };
+      edge(cc, r - 1, x, y, x, y + AO, x, y, T, AO);
+      edge(cc, r + 1, x, y + T, x, y + T - AO, x, y + T - AO, T, AO);
+      edge(cc - 1, r, x, y, x + AO, y, x, y, AO, T);
+      edge(cc + 1, r, x + T, y, x + T - AO, y, x + T - AO, y, AO, T);
+    }
     // tile pass
     for (let r = r0; r <= r1; r++) for (let cc = c0; cc <= c1; cc++) {
       const v = this.get(cc, r);
@@ -379,12 +400,19 @@ class TileMap {
    real memory cost on weak devices. Lower tiers render smaller and upscale. */
 function buildFloor(map, theme, rng){
   const T = CFG.TILE;
-  const fs = QT.floorScale || 1;
   const WW = map.cols * T, HH = map.rows * T;
-  const cv = document.createElement("canvas");
-  cv.width = Math.max(2, Math.round(WW * fs));
-  cv.height = Math.max(2, Math.round(HH * fs));
-  const c = cv.getContext("2d");
+  /* Hard ceiling on the backing store. A 51x31 arena at scale 1.0 is
+     2448x1488 = 3.6M px, about 14.6MB, allocated fresh every sector and
+     sitting alongside the decal and light buffers — the single largest
+     memory event in the game and the likeliest cause of the mobile
+     crash rate. 1.6M px caps it near 6.4MB with no visible loss: this
+     layer is soft texture under the tiles, not readable detail. */
+  const MAX_PX = 1.6e6;
+  let fs = QT.floorScale || 1;
+  if (WW * HH * fs * fs > MAX_PX) fs = Math.sqrt(MAX_PX / (WW * HH));
+  const made = SAFETY.canvas(WW * fs, HH * fs);
+  if (!made) return null;              // caller falls back to a flat wash
+  const cv = made.cv, c = made.cx;
   c.setTransform(fs, 0, 0, fs, 0, 0);
   const det = QT.detail || 1;
 
@@ -853,8 +881,19 @@ function farthestOpenPair(map, wantGap){
     const dc = best[0].c - best[1].c, dr = best[0].r - best[1].r;
     return { a: best[0], b: best[1], gap: Math.hypot(dc, dr) };
   };
-  const wide = widest(any);
-  const nice = roomy.length >= 2 ? widest(roomy) : null;
+  /* widest() is O(n^2), and `any` routinely holds around a thousand
+     cells — half a million distance tests, run twice, synchronously, at
+     level start. On a phone that is a multi-hundred-millisecond freeze
+     the browser can score as a hang. A stratified sample of 160 cells
+     picks the same pair to within a tile for 2% of the work. */
+  const cap = (arr, n) => {
+    if (arr.length <= n) return arr;
+    const out = [], step = arr.length / n;
+    for (let i = 0; i < n; i++) out.push(arr[(i * step) | 0]);
+    return out;
+  };
+  const wide = widest(cap(any, 160));
+  const nice = roomy.length >= 2 ? widest(cap(roomy, 160)) : null;
   const better = wantGap
     ? (nice && Math.abs(nice.gap - wantGap) <= Math.abs(wide.gap - wantGap) + 3)
     : (nice && nice.gap >= wide.gap * 0.8);

@@ -155,6 +155,21 @@ class Tank {
     DECALS.wreck(this.x, this.y, this.angle, this.style.hull, this.radius / 15);
     explode(this.x, this.y, { radius: 58 + this.radius * 1.6, dmg: 16, owner: this, breakTiles: false });
     fxDebris(this.x, this.y, 10, this.style.hull);
+    /* The turret leaves the hull. One large tumbling piece among the
+       small ones is what makes a kill read as a kill rather than as a
+       puff of particles. */
+    const ta = this.tAngle + rand(-0.5, 0.5), tsp = rand(120, 240);
+    PARTS.spawn({
+      x: this.x, y: this.y,
+      vx: Math.cos(ta) * tsp, vy: Math.sin(ta) * tsp - 40,
+      type: "debris", size: this.radius * 1.1, life: 1.1,
+      color: this.style.barrel, drag: 0.9,
+      rot: this.tAngle, vr: rand(-9, 9), layer: 1, vip: true,
+    });
+    // burning hull for a beat before the wreck decal takes over
+    for (let i = 0; i < 3; i++)
+      setTimeoutSafe(() => fxSmokePuffs(this.x, this.y, 2,
+        { speed: 24, big: 30, life: 1.6, color: "#3c3c40" }), i * 120);
     this.onDeath && this.onDeath(src);
   }
   drawTreads(c){
@@ -200,6 +215,19 @@ class Tank {
     c.fillRect(w * 0.18, -h / 2 + 3, 4, h - 6); // front stripe
     c.fillStyle = "rgba(255,255,255,0.10)";
     c.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, 4);
+    /* Plate detail: a diagonal weld seam, a rivet row along the top
+       edge, and a rim light on the upper-left face — the same lighting
+       direction the headquarters and pickups already use, so the whole
+       scene reads as lit from one place. */
+    c.strokeStyle = "rgba(0,0,0,0.28)";
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(-w * 0.12, -h / 2 + 3); c.lineTo(w * 0.06, h / 2 - 3);
+    c.stroke();
+    c.fillStyle = "rgba(0,0,0,0.30)";
+    for (let k = -1; k <= 1; k++) c.fillRect(k * (w * 0.22) - 1, -h / 2 + 5, 2, 2);
+    c.fillStyle = "rgba(255,255,255,0.13)";
+    c.fillRect(-w / 2 + 2, -h / 2 + 2, w * 0.34, 2);
     c.restore();
     // turret
     c.save();
@@ -209,6 +237,15 @@ class Tank {
     c.fillRect(this.radius * 0.2, -3.2, bl - this.radius * 0.2, 6.4);
     c.fillStyle = this.style.dark;
     c.fillRect(bl - 6, -4.4, 6, 8.8); // muzzle brake
+    /* Barrel heat, decaying with the recoil that produced it. */
+    if (this.recoil > 0.5) {
+      c.globalCompositeOperation = "lighter";
+      c.globalAlpha = clamp(this.recoil / 6, 0, 1) * 0.55;
+      c.fillStyle = "#ff9a3c";
+      c.fillRect(bl - 7, -4.4, 7, 8.8);
+      c.globalCompositeOperation = "source-over";
+      c.globalAlpha = ghost ? 0.35 : 1;
+    }
     if (this.twin) {
       c.fillStyle = this.style.barrel;
       c.fillRect(this.radius * 0.2, -8, bl * 0.85, 4.4);
@@ -297,6 +334,14 @@ class Player extends Tank {
     this.invuln = 1.2;
     this.exhaustT = 0;
     this.shell = { spd: 560, dmg: 20, r: 4, bounces: 1, color: "#8ffff6", brickDmg: 1 };
+    /* Permanent operator-level unlocks. Applied here rather than in
+       applyLoadout() because a new Player is built for every sector and
+       every revive, and the tank an operator has earned should be the
+       tank they get in all of them. */
+    if (typeof META !== "undefined" && META.data) {
+      if (META.has("loadout_bombs")) { this.maxBombs += 2; this.bombs += 2; }
+      if (META.has("loadout_hull")) { this.maxHp += 20; this.hp = this.maxHp; }
+    }
   }
   speedMul(){
     let m = 1;
@@ -326,7 +371,7 @@ class Player extends Tank {
         fxExhaust(this.x - Math.cos(this.angle) * this.radius, this.y - Math.sin(this.angle) * this.radius, this.angle + Math.PI);
       }
     } else {
-      this.boost = Math.min(1, this.boost + dt * 0.32);
+      this.boost = Math.min(1, this.boost + dt * 0.32 * (PERKS.flags.boostRegen || 1));
     }
     // aiming
     const ov = INPUT.aimOverride();
@@ -384,6 +429,9 @@ class Player extends Tank {
     AUDIO.setEngine(0);
     CAM.addShake(1);
     FX.doFlash(0.5, "255,120,80");
+    /* Push in on the wreck. Losing should feel authored rather than
+       abrupt, and the camera holding on the moment is most of that. */
+    CAM.tzoom = baseZoom() * 1.35;
     GAME.onPlayerDead();
   }
 }

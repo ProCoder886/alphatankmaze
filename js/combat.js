@@ -258,10 +258,13 @@ function drawShells(c){
 /* ---- bombs (planted demolition charges) ---- */
 function plantBomb(x, y, owner, opts){
   opts = opts || {};
+  /* Ordnance Bay perk widens the player's blasts only — a hostile
+     bomber's charges are unaffected. */
+  const blastMul = (owner === WORLD.player && PERKS.flags.blast) ? PERKS.flags.blast : 1;
   WORLD.bombs.push({
     x, y, owner, team: owner.team,
     fuse: opts.fuse || CFG.BOMB_FUSE,
-    radius: opts.radius || CFG.BOMB_RADIUS,
+    radius: (opts.radius || CFG.BOMB_RADIUS) * blastMul,
     dmg: opts.dmg || CFG.BOMB_DMG,
     beepT: 0,
     big: !!opts.big,

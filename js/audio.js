@@ -30,7 +30,10 @@ const AUDIO = {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    this.ctx = new AC();
+    /* Embedded webviews and the CrazyGames app can refuse a context
+       outright, and this runs inside click and touch handlers. Silence
+       is a survivable outcome; a thrown constructor is a crash. */
+    try { this.ctx = new AC(); } catch (e) { this.ctx = null; return; }
     const comp = this.ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.knee.value = 22; comp.ratio.value = 8;
     comp.connect(this.ctx.destination);
@@ -461,6 +464,10 @@ const AUDIO = {
   },
   _musicSched(){
     if (!this.music.playing) return;
+    /* A suspended or interrupted context freezes currentTime, so the
+       catch-up loop below would schedule into a clock that never
+       advances and churn nodes for nothing. Wait for the resume. */
+    if (!this.ctx || this.ctx.state !== "running") return;
     const m = this.music;
     const bpm = m.mode === "menu" ? 82 : (m.mode === "boss" ? 128 : 104) + m.intensity * 30;
     const six = 60 / bpm / 4;

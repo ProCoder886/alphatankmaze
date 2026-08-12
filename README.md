@@ -3,8 +3,9 @@
 A complete, dependency-free HTML5 tactical tank combat game: adaptive AI,
 destructible mazes, dynamic lighting, procedural audio. No external assets.
 
-Open `index.html` (serve the folder over HTTP, e.g. `python3 -m http.server`)
-and hit **Deploy**.
+Open `index.html` (serve the folder over HTTP, e.g. `python3 -m http.server`).
+The game deploys straight into a run — the command deck is on the HUD pause
+button, or **P** on a keyboard.
 
 ## Project structure
 
@@ -12,23 +13,27 @@ and hit **Deploy**.
 index.html          Page markup: canvas, CRT overlay, all UI screens, script loading
 css/
   style.css         Tactical console UI: panels, buttons, settings, screens
-js/
+js/                 Engine — classic scripts sharing globals, load order matters
+  safety.js         Crash containment: error capture, boot deadline, canvas guards
   crazygames.js     CrazyGames HTML5 SDK v3 integration (account, data, ads, banners)
-js/                 Engine, split into 10 modules — load order matters
   config.js         CFG constants, quality tiers, math utilities, seeded RNG, SAVE
   audio.js          Procedural Web Audio SFX, UI feedback, generative adaptive score
   input.js          Keyboard, mouse, gamepad, dual virtual touch sticks
   camera.js         Follow camera, look-ahead, trauma shake, zoom
-  effects.js        Pooled particles, FX helpers, 2D lighting, decals, AI hearing
+  effects.js        Pooled particles, FX helpers, 2D lighting, bloom, decals, hearing
   worldgen.js       Themes, tilemap (DDA raycast), braided maze gen, A* pathfinding
   combat.js         Shells (ricochet), bombs, mines, barrels, pickups, explosions
+  powers.js         The seven superpowers, missiles, drones, strikes, HUD rack
+  perks.js          Run-scoped upgrade draft, offered at every sector clear
+  meta.js           Operator XP, unlocks, daily operation, streak, contracts
   tanks.js          Physics chassis, Player, enemy tactical FSM AI, boss phases
   game.js           Adaptive AI Director, WORLD simulation, minimap, game state/waves
+  coldopen.js       Scripted first session — teaches by playing, not by reading
   main.js           HUD, render pipeline, UI wiring, auto-quality, main loop, boot
 ```
 
-The modules are classic scripts sharing top-level globals, so `index.html`
-loads them in the order listed above.
+`safety.js` must load first: it installs the global error and rejection
+handlers, so nothing can throw before the net is up.
 
 ## Content
 
@@ -50,18 +55,42 @@ cleared waves, cleared sectors and boss kills all restock them.
 The rack in the top-right corner shows every power as a coloured circle with
 its key, its remaining charges and a cooldown sweep.
 
-**Game modes** — Campaign, Survival, Time Attack, Quick Battle, Endless Run,
-Free Run and Training, chosen on the menu's *Operation* tab and remembered
-between sessions, along with a deployment **Location** (Random, rotating, or
-any of the sixteen zones).
+**Game modes** — Daily Operation, Campaign, Survival, Time Attack, Quick
+Battle, Base Assault, Team Battle, Endless Run, Free Run and Training, chosen
+on the menu's *Operation* tab and remembered between sessions, along with a
+deployment **Location** (Random, rotating, or any of the sixteen zones). Four
+of them are earned through the operator ladder rather than available from the
+first launch.
 
-**First-run briefing** — the game always launches onto the command deck,
-never straight into a run. A player who has not seen it gets four screens
-first: the objective, the controls, the firepower and how to read the arena.
-The controls screen shows keyboard or touch instructions depending on the
-device in use. It can be skipped from any screen, replayed later from the
-*Manual* tab, and the "seen" flag lives in the save — so it travels with the
-player's CrazyGames account and a second device never repeats it.
+**Instant play** — the game deploys straight into a run. Conversion is the
+share of page loads that reach real gameplay, and every screen between the
+page and the tank spends a share of it, so there are none: a returning player
+lands in the mode they last chose, and the command deck is reached from the
+HUD or from pause. A first-time player lands in a **cold open** instead — a
+scripted opening sector with a softened first wave, no wave modifiers, a
+guaranteed drop from the first kill, and hints that fire off game state
+(there is a hostile in view; you have just killed one) rather than off a
+stopwatch. The four-screen briefing still exists, in full, on the *Manual*
+tab for anyone who wants to read it.
+
+**Progression** — every run awards operator XP, whether it went well or not.
+Levels unlock operations, a wider refit draft, deeper ordnance racks and a
+better starting tank. A **Daily Operation** generates the same maze, arena
+shape and deployment zone for every player in the world for 24 hours (the
+level generator is a pure function of its seed), with a streak that pays out
+for a week. Three **daily contracts** are drawn from the stats the game
+already collects. All of it lives in the CrazyGames data module, so it
+follows the account to every device.
+
+**Field refit** — clearing a sector opens a draft of three run-scoped
+upgrades: extra ricochets, heavier shells, faster reload, composite hull,
+lifesteal, wider blasts, shorter cooldowns, a permanent escort drone. The
+build lasts the run and no longer, so a second run is a different run.
+
+**Field repairs** — two free continues per run, spent before a run is
+allowed to end. The rewarded-ad and salvage revives are still there for the
+third death onward, where they read as a genuine offer rather than as a toll
+gate thirty seconds in.
 
 **Audio** — everything is synthesized at runtime; there are still no audio
 files. The menu and the briefing have their own unhurried *focus* score,
@@ -259,10 +288,10 @@ bonuses reachable.
 | iOS audio after interruption | `AudioContext` resumed from `touchend`/`click`, handling `interrupted` |
 | Mobile selection / magnifier | `user-select` (all prefixes), `-webkit-touch-callout`, `touch-action: none` |
 | CrazyGames App safe areas | `env(safe-area-inset-*)` applied to menus and to the canvas HUD |
-| Land in gameplay fast | Single click from menu to gameplay; `gameplayStart` fires at real play. A first-time player sees the four-screen briefing first, skippable in one tap and never shown again |
-| Chromebook / low-end devices | Four quality tiers (Ultra default on desktop); phones and tablets step down to High, and the floor/decal buffers scale with the tier |
+| Land in gameplay fast | **Zero clicks** — the game deploys into a run on load and `gameplayStart()` fires before any generation work that could throw. A first-time player lands in the scripted cold open; the command deck is one tap away on the HUD and through pause |
+| Chromebook / low-end devices | Four quality tiers (Ultra default on desktop); phones and tablets start at Medium. The pre-rendered floor is capped at 1.6M pixels regardless of tier, every offscreen canvas is allocated through a guard that tolerates refusal, and the previous sector's buffers are freed before the next are allocated |
 | Whole arena visible | Minimap sits in the top-right corner and always fits the full map |
-| Landscape only on phones | A rotate gate pauses the game and asks the player to turn the device; the layout compacts for short landscape screens and touch targets grow |
+| Portrait phones | **Portrait is playable, not blocked.** A tall window is a taller, narrower camera; the HUD reflows, the camera pulls back and the power rack moves down to the aiming thumb. A one-time hint suggests turning the device, and never freezes the game to say so |
 | No custom fullscreen button, no cross-promotion, no external ads | None present |
 | AZERTY keyboards | Movement reads physical key codes, so WASD maps to ZQSD |
 
